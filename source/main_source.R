@@ -7,13 +7,14 @@
 round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, .re_export = TRUE, .status_messages_dir, .job_name, ...) {
   
   # DEBUG ###
-  # .l <- list("a1" = 1:100)
+  # .l <- list("a1" = 1:100, "a2" = 101:200)
   # .f <- function(a1) {Sys.sleep(30); return(a1 + 1)}
-  # # .f <- function(a1, a2) {return(a1 + a2)}
+  # .f <- function(a1) {Sys.sleep(5); stop()}
+  # .f <- function(a1, a2) {message("messagetest"); warning("warningtest"); return(a1 + a2)}
   # .num_workers <- 8
   # .temp_path <- "/mnt/LTS/projects/2020_RNA_atlas/results/results_proteome_validation/temp/atlas_polya_psisigma_exons_3FT_unmatched_list_131_temp.RData"
   # .status_messages_dir <- "/mnt/LTS/projects/2020_RNA_atlas/results/results_proteome_validation/temp/"
-  # .job_name <- output_name
+  # .job_name <- "test"
   # .re_export <- FALSE
   
   # .l <- list(
@@ -33,13 +34,6 @@ round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, 
     .job_name <- as.numeric(Sys.time())
   }
   
-  print(.temp_path)
-  
-  print(file.exists(.temp_path))
-  print(.re_export)
-  
-  print((!file.exists(.temp_path)) | .re_export == TRUE)
-  
   # save the current env into temp path
   if (!file.exists(.temp_path) | .re_export == TRUE) {
     save.image(file = .temp_path, ...)
@@ -47,6 +41,10 @@ round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, 
   
   # check if all the list elements are of equal length
   map_length <- unique(unlist(purrr::map(.x = .l, .f = ~length(.x))))
+  
+  if (.num_workers > map_length) {
+    .num_workers <- map_length
+  }
   
   if (length(map_length) != 1) {
     stop("ERROR: list args have incompatible lengths.")
@@ -90,7 +88,7 @@ round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, 
     vector_logical_indices_workers_completed_reported <- unlist(purrr::map(.x = list_workers, .f = ~.x$get_exit_status())) == 0
     
     # check on process status and write progress file
-    purrr::map2(
+    list_logical_any_error <- purrr::map2(
       .x = list_workers, 
       .y = names(list_workers), 
       .f = function(a1, a2) {
@@ -98,11 +96,26 @@ round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, 
         stdout_lines <- a1$read_output_lines()
         stderr_lines <- a1$read_error_lines()
         
-        if (length(stdout_lines) != 0) {write.table(x = stdout_lines, file = paste(.status_messages_dir, .job_name, "_", a2, "_stdout.txt", sep = ""), append = TRUE, row.names = FALSE, quote = FALSE)}
+        if (length(stdout_lines) != 0) {
+          write(x = paste(Sys.time()), file = paste(.status_messages_dir, .job_name, "_", a2, "_stdout.txt", sep = ""), append = TRUE)
+          write.table(x = stdout_lines, file = paste(.status_messages_dir, .job_name, "_", a2, "_stdout.txt", sep = ""), append = TRUE, row.names = FALSE, quote = FALSE)
+          }
         
-        if (length(stderr_lines) != 0) {write.table(x = stderr_lines, file = paste(.status_messages_dir, .job_name, "_", a2, "_stderr.txt", sep = ""), append = TRUE, row.names = FALSE, quote = FALSE)}
+        if (length(stderr_lines) != 0) {
+          write(x = paste(Sys.time()), file = paste(.status_messages_dir, .job_name, "_", a2, "_stderr.txt", sep = ""), append = TRUE)
+          write.table(x = stderr_lines, file = paste(.status_messages_dir, .job_name, "_", a2, "_stderr.txt", sep = ""), append = TRUE, row.names = FALSE, quote = FALSE)
+          }
+        
+        return(
+          grepl(x = stderr_lines, pattern = "^Error in", ignore.case = FALSE)
+        )
         
       } )
+    
+    if (any(unlist(list_logical_any_error)) == TRUE) {
+      purrr::map(.x = list_workers, .f = ~.x$signal(9))
+      stop(print(paste("Stop error received on workers:", paste(names(list_workers)[which(unlist(list_logical_any_error))], collapse = ", "))))
+    }
     
     # round robin action until the list is fully mapped
     if (current_map_index < map_length) {
@@ -125,7 +138,7 @@ round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, 
           formals(fun = function_current_instance) <- list_current_arguments
           
           # essential to spike the exported function with a command to read the environment back in
-          body(function_current_instance) <- as.call(prepend(as.list(body(function_current_instance)), expression(load(file = commandArgs()[2])), before = 2))
+          body(function_current_instance) <- as.call(purrr::prepend(as.list(body(function_current_instance)), expression(load(file = commandArgs()[2])), before = 2))
           
           assign(
             x = paste("worker_", ..i, sep = ""), 
@@ -159,12 +172,565 @@ round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, 
   
   if (any(unlist(purrr::map(.x = list_workers, .f = ~.x$get_exit_status())) != 0)) {
     purrr::map(.x = list_workers, .f = ~.x$signal(9))
-    stop(print("Exit status failure received on workers: ", paste(names(list_workers)[which(unlist(purrr::map(.x = list_workers, .f = ~.x$get_exit_status())) != 0)]), collapse = ","))
+    stop(print(paste("Exit status failure received on workers:", paste(names(list_workers)[which(unlist(purrr::map(.x = list_workers, .f = ~.x$get_exit_status())) != 0)], collapse = ", "))))
   }
   
-  rm(list_workers)
   rm(list = ls(pattern = "worker_"))
+  rm(list_workers)
   
   cat("\n")
   
 }
+
+# function to aggregate a bunch of individual numbers into discrete intervals
+numbers_to_intervals <- function(vector_input) {
+  
+  vector_input_sorted <- sort(unlist(vector_input))
+  
+  # convert the individual nt positions to a set of ranges
+  ## achieve this by comparing n to n + 1
+  ## for rows where diff > 1, the n represents the end of an exon. n.plus.1 represents the start of the exon right after the gap.
+  if (length(vector_input_sorted) == 1) {
+    
+    vec_starts <- vector_input_sorted
+    vec_ends <- vector_input_sorted
+    vec_widths <- 1
+    
+  } else {
+    
+    tibble_n_n.plus.1 <- tibble::tibble("n" = head(x = vector_input_sorted, n = length(vector_input_sorted) - 1),
+                                "n.plus.1" = vector_input_sorted[2:length(vector_input_sorted)])
+    
+    tibble_n_n.plus.1 <- tibble::add_column(.data = tibble_n_n.plus.1, "difference" = tibble_n_n.plus.1$n.plus.1 - tibble_n_n.plus.1$n)
+    
+    ## if there are no gaps, then just take the range as the start:end
+    if (length(unique(tibble_n_n.plus.1$difference)) == 1) {
+      
+      vec_starts <- min(vector_input_sorted)
+      vec_ends <- max(vector_input_sorted)
+      vec_widths <- vec_ends - vec_starts + 1
+      
+    } else if (length(unique(tibble_n_n.plus.1$difference)) > 1) {
+      
+      # vec_blockCount <- tibble_n_n.plus.1$difference %>% unique %>% length
+      vec_starts <- c(vector_input_sorted[1], 
+                      unlist(tibble_n_n.plus.1[tibble_n_n.plus.1$difference > 1, "n.plus.1"], use.names = FALSE))
+      vec_ends <- c(unlist(tibble_n_n.plus.1[tibble_n_n.plus.1$difference > 1, "n"], use.names = FALSE), 
+                    vector_input_sorted[length(vector_input_sorted)])
+      vec_widths <- vec_ends - vec_starts + 1
+      
+    }
+    
+  }
+  
+  tibble_intervals <- tibble::tibble(
+    "start" = vec_starts,
+    "end" = vec_ends,
+    "width" = vec_widths 
+  )
+
+  return(tibble_intervals)
+  
+}
+
+# function to do Benjamini-Hochberg FDR correction for Gene Ontology output tables from GOHyperGall
+
+## takes the output of the GOHyperGall GO enrichment table and over-writes the Padj column with benjamini-corrected values from the Phyper column
+## spits out the resulting table with modified single column.
+
+## NOTE: BENJAMINI PVALUES ABOVE 0.05 ARE RENAMED NA
+
+GOHyperGAll_benjamini_correction <- function(raw_GOHyperGAll_table)
+  
+{
+  
+  benjamini_GOHyperGAll_table <- raw_GOHyperGAll_table
+  
+  benjamini_GOHyperGAll_table <- benjamini_GOHyperGAll_table[benjamini_GOHyperGAll_table$SampleMatch > 1, ]
+  
+  if (benjamini_GOHyperGAll_table %>% nrow == 0) {
+    benjamini_GOHyperGAll_table <- tibble()
+  } else {
+    benjamini_GOHyperGAll_table[, "Padj"] <- p.adjust(p = benjamini_GOHyperGAll_table[, "Phyper"], method = "BH", n = length(benjamini_GOHyperGAll_table[, "Phyper"]))
+    
+    # benjamini_GOHyperGAll_table[benjamini_GOHyperGAll_table$Padj > 0.05, "Padj"] <- NA
+  }
+  
+  return(benjamini_GOHyperGAll_table)
+  
+}
+
+# the equivalent for bc3net::enrichment() output table
+
+bc3net_benjamini_correction <- function(raw_bc3net_table)
+  
+{
+  
+  benjamini_bc3net_table <- raw_bc3net_table
+  
+  benjamini_bc3net_table_processed <- benjamini_bc3net_table[benjamini_bc3net_table$genes > 1, ]
+  
+  if (nrow(benjamini_bc3net_table_processed) != 0) {
+    
+    benjamini_bc3net_table_processed[, "padj"] <- p.adjust(p = benjamini_bc3net_table_processed[, "pval"], method = "BH", n = length(benjamini_bc3net_table_processed[, "pval"]))
+    
+    # benjamini_bc3net_table_processed[benjamini_bc3net_table_processed$padj > 0.05, "padj"] <- NA
+    
+  } else {
+    
+    benjamini_bc3net_table_processed <- benjamini_bc3net_table
+    
+    benjamini_bc3net_table_processed[, "padj"] <- NA
+    
+  }
+  
+  return(benjamini_bc3net_table_processed)
+  
+}
+
+# DEPRECATED CRYPTIC FUNCTION FOR BC3NET CATALOG GENERATION
+## bc3net::enrichment() does not show captured genes for each family enriched, so we have to add it in. but in doing so, i want to avoid a purrr within a purrr
+
+## this function selects genes from the background in each family which are ONLY input genes.
+
+# filtering_genehits_from_background_catalogue <- function(catalogue, genehit_vector){
+#   
+#   filtered_catalogue <- purrr::map(.x = catalogue, .f = ~intersect(.x, genehit_vector))
+#   
+#   return(filtered_catalogue)
+#   
+# }
+
+# 
+
+## FUNCTION TO EXTRACT REFERENCE EXONS WHICH OVERLAP EXACTLY WITH QUERY EXONS
+## NOTE: to be used with purrr
+## input: spliceregion_list: a list containing details of ONE junction: $chr, $diff_exon_start, $diff_exon_end
+## tibble_gtf_table: rtracklayer::import(...) %>% as_tibble. can be any GTF. reconstructed or reference.
+## index: loop progress marker to be used with imap
+
+extract_matching.exons <- function(query_chr, query_start, query_end, query_strand, tibble_gtf_table, left_query_shift = 0, right_query_shift = 0, left_tolerance = 0, right_tolerance = 0, return_type = "exon") {
+  
+  # DEBUG ###################
+  # index <- 1
+  # spliceregion_list <- wide_tibble_of_all_unique_VSR_and_exon_coords_array.tree_not_IR[[index]]
+  # # tibble_gtf_table <- tibble_ref_gtf
+  # tibble_gtf_table <- tibble_recon_gtf
+  # stranded = FALSE
+  ###########################
+  
+  # print(query_chr, "\n")
+  # print(query_start, "\n")
+  # print(query_end, "\n")
+  # print(query_strand, "\n")
+  # print(tibble_gtf_table, "\n")
+  
+  # print(paste("now processing junction number", index))
+  
+  global_query_chr <<- query_chr
+  global_query_start <<- query_start
+  global_query_end <<- query_end
+  global_query_strand <<- query_strand
+  
+  if (is.na(query_strand) | is.null(query_strand)) {
+    query_strand <- "*"
+  }
+  
+  if (!(query_strand == "+" | query_strand == "-")) {
+    
+    # cat("a\n")
+    
+    # +/- 1 nt tolerance
+    tibble_gtf_subset_matching_exons <- tibble_gtf_table[tibble_gtf_table$seqnames == query_chr %>% trimws, ] %>% 
+      .[which(.$start > ((query_start %>% as.numeric) - 1 + left_query_shift - left_tolerance) & .$end < ((query_end %>% as.numeric) + 1 + right_query_shift + right_tolerance)), ] %>% 
+      .[which((.$start < ((query_start %>% as.numeric) + 1 + left_query_shift + left_tolerance) & .$end > ((query_end %>% as.numeric) - 1 + right_query_shift - right_tolerance))), ] %>% 
+      .[which(.$type %in% return_type), ]
+    
+  } else if (query_strand == "+" | query_strand == "-") {
+    
+    # cat("b\n")
+    
+    # +/- 1 nt tolerance
+    tibble_gtf_subset_matching_exons <- tibble_gtf_table[tibble_gtf_table$seqnames == query_chr %>% trimws &
+                                                           tibble_gtf_table$strand == query_strand %>% trimws, ] %>% 
+      .[which(.$start > ((query_start %>% as.numeric) - 1 + left_query_shift - left_tolerance) & .$end < ((query_end %>% as.numeric) + 1 + right_query_shift + right_tolerance)), ] %>% 
+      .[which((.$start < ((query_start %>% as.numeric) + 1 + left_query_shift + left_tolerance) & .$end > ((query_end %>% as.numeric) - 1 + right_query_shift - right_tolerance))), ] %>% 
+      .[which(.$type %in% return_type), ]
+    
+  }
+  
+  return(tibble_gtf_subset_matching_exons)
+  
+}
+
+## END extract_matching.exons() ###
+
+## FUNCTION TO EXTRACT TRANSCRIPTS WITH JUNCTION-FLANKING EXONS.
+## NOTE: to be used with purrr
+## details of ONE junction: $chr, $start, $end, $strand
+## tibble_gtf_table: rtracklayer::import(...) %>% as_tibble. can be any GTF. reconstructed or reference.
+## index: loop progress marker to be used with imap
+
+extract_junction.flanking.exons <- function(query_chr, query_start, query_end, query_strand, tibble_gtf_table, left_query_shift = 0, right_query_shift = 0, left_tolerance = 0, right_tolerance = 0, match_consecutive = TRUE, match_inside_same_transcript = TRUE, return_type = "exon") {
+  
+  # DEBUG ###################
+  
+  # query_chr = query_chr
+  # query_start = a1$event_region_start %>% type.convert
+  # query_end = a1$event_region_end %>% type.convert
+  # query_strand = "*"
+  # tibble_gtf_table = tibble_ref_gtf
+  # tolerance_left = 0
+  # tolerance_right = 0
+  # tolerance_inside = 0
+  # tolerance_outside = 0
+  # match_consecutive = FALSE
+  # return_type = "exon"
+  
+  ###########################
+  
+  # print(paste("now processing junction number", index))
+  
+  global_query_chr <<- query_chr
+  global_query_start <<- query_start
+  global_query_end <<- query_end
+  global_query_strand <<- query_strand
+  
+  if (is.na(query_strand) | is.null(query_strand)) {
+    query_strand <- "*"
+  }
+  
+  if (query_strand == "." | query_strand == 0 | query_strand == "*") {
+    
+    tibble_gtf_subset_flanking_exons <- tibble_gtf_table[tibble_gtf_table$seqnames == query_chr %>% trimws, ] %>% .[.$start <= ((query_end %>% as.numeric) + 1 + right_query_shift + right_tolerance) & .$end >= ((query_start %>% as.numeric) - 1 + left_query_shift - left_tolerance), ] %>% .[!(.$start <= ((query_end %>% as.numeric) + right_query_shift - right_tolerance) & .$end >= ((query_start %>% as.numeric) + left_query_shift + left_tolerance)), ] %>% .[.$type %in% return_type, ]
+    
+  } else if (query_strand == "+" | query_strand == "-") {
+    
+    tibble_gtf_subset_flanking_exons <- tibble_gtf_table[tibble_gtf_table$seqnames == query_chr %>% trimws, ] %>% .[.$strand == query_strand %>% trimws, ] %>% .[.$start <= ((query_end %>% as.numeric) + 1 + right_query_shift + right_tolerance) & .$end >= ((query_start %>% as.numeric) - 1 + left_query_shift - left_tolerance), ] %>% .[!(.$start <= ((query_end %>% as.numeric) + right_query_shift - right_tolerance) & .$end >= ((query_start %>% as.numeric) + left_query_shift + left_tolerance)), ] %>% .[.$type %in% return_type, ]
+    
+  }
+  
+  list_of_junction_associated_transcripts <- tibble_gtf_subset_flanking_exons$transcript_id %>% unique %>% array_tree %>% flatten
+  
+  # make a list for each transcript that directly flanks a junction.
+  # then filter so that there are only a) exon PAIRS which b) are directly connected in the mature (spliced) transcript
+  
+  if (match_inside_same_transcript == FALSE) {
+    
+    list_of_tibbles_flanking_exon_gtf.entries_per_transcript <- purrr::map(.x = list_of_junction_associated_transcripts, .f = ~tibble_gtf_subset_flanking_exons[tibble_gtf_subset_flanking_exons$transcript_id == .x, ] %>% dplyr::arrange(exon_number %>% as.numeric)) %>% set_names(list_of_junction_associated_transcripts)
+    
+  } else if (match_inside_same_transcript == TRUE & match_consecutive == TRUE) {
+    
+    list_of_tibbles_flanking_exon_gtf.entries_per_transcript <- purrr::map(.x = list_of_junction_associated_transcripts, .f = ~tibble_gtf_subset_flanking_exons[tibble_gtf_subset_flanking_exons$transcript_id == .x, ] %>% dplyr::arrange(exon_number %>% as.numeric)) %>% set_names(list_of_junction_associated_transcripts) %>% keep(.x = ., .p = ~nrow(.x) == 2) %>% keep(.x = ., .p = ~abs((.x[2, "exon_number"] %>% paste %>% as.numeric) - (.x[1, "exon_number"] %>% paste %>% as.numeric)) == 1)
+    
+  } else if (match_inside_same_transcript == TRUE & match_consecutive == FALSE) {
+    
+    list_of_tibbles_flanking_exon_gtf.entries_per_transcript <- purrr::map(.x = list_of_junction_associated_transcripts, .f = ~tibble_gtf_subset_flanking_exons[tibble_gtf_subset_flanking_exons$transcript_id == .x, ] %>% dplyr::arrange(exon_number %>% as.numeric)) %>% set_names(list_of_junction_associated_transcripts) %>% keep(.x = ., .p = ~nrow(.x) == 2)
+    
+  }
+  
+  return(list_of_tibbles_flanking_exon_gtf.entries_per_transcript)
+  
+}
+
+## END extract_junction.flanking.exons() ###
+
+## FUNCTION TO EXTRACT REFERENCE EXONS WHICH OVERLAP EXACTLY WITH QUERY EXONS
+## NOTE: to be used with purrr
+## input: spliceregion_list: a list containing details of ONE junction: $chr, $diff_exon_start, $diff_exon_end
+## tibble_gtf_table: rtracklayer::import(...) %>% as_tibble. can be any GTF. reconstructed or reference.
+## index: loop progress marker to be used with imap
+
+extract_overlapping_features <- function(query_chr, query_start, query_end, query_strand, tibble_gtf_table, left_query_shift = 0, right_query_shift = 0, left_tolerance = 0, right_tolerance = 0, return_type = NULL) {
+  
+  # DEBUG ###################
+  # index <- 1
+  # spliceregion_list <- wide_tibble_of_all_unique_VSR_and_exon_coords_array.tree_not_IR[[index]]
+  # # tibble_gtf_table <- tibble_ref_gtf
+  # tibble_gtf_table <- tibble_recon_gtf
+  # stranded = FALSE
+  ###########################
+  
+  # cat(query_chr, "\n")
+  # cat(query_start, "\n")
+  # cat(query_end, "\n")
+  # cat(query_strand, "\n")
+  # print(tibble_gtf_table, "\n")
+  # cat(left_query_shift, "\n")
+  # cat(right_query_shift, "\n")
+  # cat(left_tolerance, "\n")
+  # cat(right_tolerance, "\n")
+  
+  # print(paste("now processing junction number", index))
+  
+  global_query_chr <<- query_chr
+  global_query_start <<- query_start
+  global_query_end <<- query_end
+  global_query_strand <<- query_strand
+  
+  if (is.na(query_strand) | is.null(query_strand)) {
+    query_strand <- "*"
+  }
+  
+  if (!(query_strand == "+" | query_strand == "-")) {
+    
+    # +/- 1 nt tolerance
+    tibble_gtf_subset_matching_exons <- tibble_gtf_table[tibble_gtf_table$seqnames == query_chr %>% trimws, ] %>% 
+      .[which(.$end >= ((query_start %>% as.numeric) + left_query_shift - left_tolerance) & .$start <= ((query_end %>% as.numeric) + right_query_shift + right_tolerance)), ]
+    
+  } else if (query_strand == "+" | query_strand == "-") {
+    
+    # +/- 1 nt tolerance
+    tibble_gtf_subset_matching_exons <- tibble_gtf_table[tibble_gtf_table$seqnames == query_chr %>% trimws &
+                                                           tibble_gtf_table$strand == query_strand %>% trimws, ] %>% 
+      .[which(.$end >= ((query_start %>% as.numeric) + left_query_shift - left_tolerance) & .$start <= ((query_end %>% as.numeric) + right_query_shift + right_tolerance)), ]
+    
+  }
+  
+  if (is.null(return_type) == FALSE) {
+    return(tibble_gtf_subset_matching_exons[tibble_gtf_subset_matching_exons$type %in% return_type, ])
+  } else if (is.null(return_type) == TRUE) {
+    return(tibble_gtf_subset_matching_exons)
+  }
+  
+  return(tibble_gtf_subset_matching_exons)
+  
+}
+
+## END extract_overlapping_features() ###
+
+## FUNCTIONS TO MAGNETISE A USER VALUE TO REFERENCE START COORDS
+### ref_start/end_shift: use +/-1 to get intronic starts/ends
+### match to reference starts
+magnetise_genome_position_to_ref_starts <- function(query_chr, query_coord, query_strand, tibble_gtf_table, query_shift = 0, query_tolerance = 0, ref_start_shift = 0, return_type) {
+  
+  # DEBUG ###################
+  # query_chr <- query_chr
+  # query_coord <- 153411582
+  # query_strand <- query_strand
+  # query_shift <- right_query_shift
+  # query_tolerance <- right_tolerance
+  # ref_start_shift <- -1
+  # return_type <- "exon"
+  ###########################
+  
+  global_magnetised_query_chr <<- query_chr
+  global_magnetised_query_coord <<- query_coord
+  global_magnetised_query_strand <<- query_strand
+  
+  if (is.na(query_strand) | is.null(query_strand)) {
+    query_strand <- "*"
+  }
+  
+  if (!(query_strand == "+" | query_strand == "-")) {
+    
+    # +/- 1 nt tolerance
+    tibble_ref_starts_matched_to_query_coord <- tibble_gtf_table[tibble_gtf_table$seqnames == query_chr %>% trimws, ] %>% 
+      .[which((.$start + ref_start_shift) >= (query_coord + query_shift - query_tolerance) & (.$start + ref_start_shift) <= (query_coord + query_shift + query_tolerance)), ] %>% 
+      .[which(.$type %in% return_type), ]
+  } else if (query_strand == "+" | query_strand == "-") {
+    
+    # +/- 1 nt tolerance
+    tibble_ref_starts_matched_to_query_coord <- tibble_gtf_table[tibble_gtf_table$seqnames == query_chr %>% trimws & tibble_gtf_table$strand == query_strand %>% trimws, ] %>% 
+      .[which((.$start + ref_start_shift) >= (query_coord + query_shift - query_tolerance) & (.$start + ref_start_shift) <= (query_coord + query_shift + query_tolerance)), ] %>% 
+      .[which(.$type %in% return_type), ]
+    
+  }
+  
+  magnetised_coord <- (tibble_ref_starts_matched_to_query_coord$start + ref_start_shift) %>%
+    .[which(abs(tibble_ref_starts_matched_to_query_coord$start - query_coord) == min(abs(tibble_ref_starts_matched_to_query_coord$start - query_coord)))] %>% 
+    .[1]
+  
+  return(list(
+    "tibble_ref_starts_matched_to_query_coord" = tibble_ref_starts_matched_to_query_coord,
+    "magnetised_coord" = magnetised_coord
+  ) )
+  
+}
+
+## END magnetise_genome_position_to_ref_starts() ###
+
+### match to reference ends
+magnetise_genome_position_to_ref_end <- function(query_chr, query_coord, query_strand, tibble_gtf_table, query_shift = 0, query_tolerance = 0, ref_end_shift = 0, return_type) {
+  
+  # DEBUG ###################
+  # query_chr <- query_chr
+  # query_coord <- query_VSR_end
+  # query_strand <- query_strand
+  # query_shift <- right_query_shift
+  # query_tolerance <- right_tolerance
+  # ref_end_shift <- -1
+  ###########################
+  
+  if (!(query_strand == "+" | query_strand == "-")) {
+    
+    # +/- 1 nt tolerance
+    tibble_ref_ends_matched_to_query_coord <- tibble_gtf_table[tibble_gtf_table$seqnames == query_chr %>% trimws, ] %>% 
+      .[which((.$end + ref_end_shift) >= (query_coord + query_shift - query_tolerance) & (.$end + ref_end_shift) <= (query_coord + query_shift + query_tolerance)), ] %>% 
+      .[which(.$type %in% return_type), ]
+  } else if (query_strand == "+" | query_strand == "-") {
+    
+    # +/- 1 nt tolerance
+    tibble_ref_ends_matched_to_query_coord <- tibble_gtf_table[tibble_gtf_table$seqnames == query_chr %>% trimws & tibble_gtf_table$strand == query_strand %>% trimws, ] %>% 
+      .[which((.$end + ref_end_shift) >= (query_coord + query_shift - query_tolerance) & (.$end + ref_end_shift) <= (query_coord + query_shift + query_tolerance)), ] %>% 
+      .[which(.$type %in% return_type), ]
+    
+  }
+  
+  magnetised_coord <- (tibble_ref_ends_matched_to_query_coord$end + ref_end_shift) %>%
+    .[which(abs(tibble_ref_ends_matched_to_query_coord$end - query_coord) == min(abs(tibble_ref_ends_matched_to_query_coord$end - query_coord)))] %>% 
+    .[1]
+  
+  return(list(
+    "tibble_ref_ends_matched_to_query_coord" = tibble_ref_ends_matched_to_query_coord,
+    "magnetised_coord" = magnetised_coord
+  ) )
+  
+}
+
+## END magnetise_genome_position_to_ref_starts() ###
+
+# FUNCTION TO EXTRACT COMMON STRING FROM TWO INPUT STRINGS IN ONE STEP, A SIMPLIFICATION OF QUALV
+
+extract_common_string <- function(input_string_a, input_string_b) {
+  
+  # debug ###
+  # 
+  # input_string_a <- "ud_absolute.psi_1"
+  # input_string_b <- "ud_absolute.psi_2"
+  
+  ###########
+  
+  vector_of_letters_a <- strsplit(input_string_a, "") %>% unlist
+  vector_of_letters_b <- strsplit(input_string_b, "") %>% unlist 
+  
+  raw_LCS <- qualV::LCS(vector_of_letters_a, vector_of_letters_b)
+  vector_common_string <- raw_LCS$LCS %>% paste(collapse = "")
+  
+  return(vector_common_string)
+  
+}
+
+# END extract_common_string()
+
+# FUNCTION TO TAKE THE AVERAGE VALUE OF A MATRIX OF TIMEPOINTS WITH THREE REPLICATES EACH (3 column compartments at a time)
+## replicates of the same timepoint must be all grouped together.
+calculate_average_values_from_replicate_columns <- function(input_matrix, number_of_replicates, append_average_to_column_name = TRUE) {
+  
+  # DEBUG ######
+  
+  # input_matrix <- wide_tibble_of_psisigma_results_allcomparisons_final_ud.only[, col_indices_observations]
+  # number_of_replicates <- 3
+  
+  ##############
+  
+  # sanity check - if the number of columns is not an integer multiple of the number of replicates, there's something wrong
+  if (ncol(input_matrix) %% number_of_replicates != 0) {
+    
+    stop("the number of columns in the matrix is not an integer multiple of the number of replicates specified. please check the matrix and try again.")
+    
+  }
+  
+  # get the row numbers to subset
+  ## start of each compartment
+  a <- seq(1, (ncol(input_matrix) - number_of_replicates + 1), number_of_replicates)
+  ## end of each compartment
+  b <- seq(number_of_replicates, ncol(input_matrix), number_of_replicates)
+  # create list of compartments
+  c <- purrr::map2(.x = a, .y = b, .f = ~.x:.y)
+  # map each column into each compartment
+  d <- purrr::map(.x = c, .f = ~input_matrix[, .x])
+  # apply the average
+  e <- purrr::map(.x = d, .f = ~apply(X = .x, MARGIN = 1, FUN = function(X){mean(X, na.rm = TRUE)}))
+  # retrieve the column names of each compartment
+  column_names <- purrr::map(.x = d, .f = ~colnames(.x) %>% purrr::reduce(extract_common_string))
+  
+  if (append_average_to_column_name == TRUE) {
+    
+    column_names <- paste(column_names, "average", sep = "")
+    
+  }
+  
+  # reframe into tibble, return
+  f <- e %>% set_names(column_names) %>% as_tibble
+  
+}
+
+# END calculate_average_values_from_replicate_columns()
+
+# target_colnames: a vector of names of the columns to split at the same time
+split_delimited_columns_in_table <- function(input_table, target_colnames, split, columns_to_deduplicate = NULL) {
+  
+  # DEBUG ###
+  # input_table <- tibble("a" = c("345,345", "asdf,5t345", "32454rtg,54", "3245345,rr"), "b" = c("345,345", "asdf,5t345", "32454rtg,54", "3245345,rr"), "c" = "haha")
+  # target_colnames <- c("a", "b")
+  # split = "\\,"
+  # columns_to_deduplicate <- "c"
+  ###########
+  
+  ## check for length equivalence
+  ## if multiple columns were selected for splitting and any row has unequal lengths after strsplit then we cannot continue.
+  ## using `apply` in this way will return a list of lists, with L1 being columns and L2 being rows of each column
+  list_split_columns <- apply(X = input_table[, target_colnames], MARGIN = 2, FUN = function(x) {return(strsplit(x, split = split))} )
+  
+  list_split_lengths <- pmap(
+      .l = list_split_columns, 
+      .f = function(...) {
+        return(unique(unlist(purrr::map(.x = list(...), .f = ~length(.x)))))
+      }
+    )
+  
+  if (unique(unlist(purrr::map(.x = list_split_lengths, .f = ~length(.x))))[1] != 1 | length(unique(unlist(purrr::map(.x = list_split_lengths, .f = ~length(.x))))) != 1) {
+    stop("Multicolumn splits are uneven. Cannot proceed further.")
+  }
+  
+  # repeat table according to the split lengths
+  row_indices_of_table_repeated_by_split <- rep(x = 1:nrow(input_table), times = unlist(list_split_lengths))
+  
+  input_table_repeated_by_split <- input_table[row_indices_of_table_repeated_by_split, ]
+  
+  # replace target column with split values
+  input_table_repeated_by_split[, target_colnames] <- input_table_repeated_by_split
+  
+  split_table <- input_table_repeated_by_split
+  
+  # if specified, append an index to a particular column
+  if (is.null(columns_to_deduplicate) == FALSE) {
+    
+    # get the duplicated row indices where split lengths > 1
+    indices_of_duplicates <- which(unlist(list_split_lengths) > 1)
+    
+    # get the repetition number where split lengths > 1
+    repetition_numbers_of_duplicates <- unlist(list_split_lengths)[which(unlist(list_split_lengths) > 1)]
+    
+    # list-ify the columns to be appended
+    list_deduplicated_columns <- input_table[, columns_to_deduplicate] %>% array_tree(margin = 2) %>% purrr::map(~array_tree(.x))
+    
+    # map over each column, split the target element and add _[0-9]+
+    list_deduplicated_columns_split <- purrr::map(.x = list_deduplicated_columns, .f = function(a1) {
+      
+      # map a subset each of the L2 (elements of a column)
+      a1[indices_of_duplicates] <- purrr::map2(.x = a1[indices_of_duplicates], .y = repetition_numbers_of_duplicates, 
+                                               .f = ~rep(.x, times = .y) %>% unlist %>% paste(., 1:.y, sep = "_"))
+      
+      return(a1 %>% unlist)
+      
+    } )
+    
+    # tibblise
+    tibble_deduplicated_columns_split <- list_deduplicated_columns_split %>% as_tibble
+    
+    # add back every row onto the split table
+    for (dedupe_colname in columns_to_deduplicate) {
+      
+      split_table[, dedupe_colname] <- tibble_deduplicated_columns_split[, dedupe_colname]
+      
+    }
+    
+  }
+  
+  return(split_table %>% type_convert)
+  
+}
+
+# END split_delimited_column_in_table()
