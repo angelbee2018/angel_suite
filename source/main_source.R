@@ -30,6 +30,8 @@ round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, 
   # .re_export <- FALSE
   ###########
   
+  system("ulimit -n 65536")
+  
   if (is.null(.job_name)) {
     .job_name <- as.numeric(Sys.time())
   }
@@ -734,3 +736,189 @@ split_delimited_columns_in_table <- function(input_table, target_colnames, split
 }
 
 # END split_delimited_column_in_table()
+
+# FUNCTION TO PLOT UMAP FOR SAMPLE AND REPLICATE
+# tibble_metadata: this should have n columns equal to the number of annotation to be specified, and m rows equal to number of samples (including replicates). basically a collection of vectors of length equal to number of samples.
+# protected colname: "condition_names", "replicate_names"
+plot_UMAP_sample_and_replicate_plotly <- function(table_matrix, condition_order = NULL, tibble_metadata = NULL, replicate_order = NULL, plot_shapes = TRUE, centroid_labels = TRUE, point_size = 5, centroid_label_size = 4, legend_position = "none", PCA_depths_y = NULL, PCA_depths_x = NULL, input_colour_limits = NULL, input_colour_value = NULL, save_dir = NULL, save_name = NULL, graph_title = NULL, width = 10, height = 10) {
+  
+  # DEBUG ###
+  # table_matrix <- tibble_matrix_absolute_psi_in_sample_replicate_format_with_na
+  # condition_order <- temp_condition_names
+  # replicate_order <- c("r1", "r2")
+  # plot_shapes <- FALSE
+  # legend_position <- "none"
+  # centroid_labels <- TRUE
+  # point_size <- 1
+  # centroid_label_size <- 1
+  # PCA_depths_y <- c(2, 3, 4)
+  # PCA_depths_x <- c(1, 2, 3)
+  # input_colour_limits <- tibble_sharp_cluster_mapping$condition_names
+  # tibble_metadata <- tibble_sharp_cluster_mapping %>% dplyr::ungroup() %>% dplyr::rename("som_cluster" = "cluster", "condition_names" = "condition_names") %>% dplyr::select(som_cluster, condition_names, Description, Biological_source, Type) %>% dplyr::mutate_at(.vars = c("Description", "Biological_source", "Type"), .funs = function(x) {gsub(x = x, pattern = "[^a-zA-Z0-9 -/]", replacement = "")}) 
+  # input_colour_value = rainbow(tibble_sharp_cluster_mapping$cluster %>% max) %>% .[tibble_sharp_cluster_mapping$cluster]
+  # save_dir <- R_processing_results_dir
+  # save_name <- paste("atlas_totalrna_psisigma_consensus_som_clusterone_with_na_plotly", sep = "")
+  # graph_title = "Total RNA/PSI-Sigma w/ replicates, coloured by consensus SOM clusters"
+  # width <- 40
+  # height <- 40
+  ###########
+  
+  transposed_matrixtable <- table_matrix %>% t
+  # rownames(transposed_matrixtable) <- colnames(table_matrix)
+  
+  tibble_umap_result <- umap::umap(transposed_matrixtable) %>% .$layout %>% 
+    tibble::as_tibble(rownames = "condition|replicate", .name_repair = "unique") %>%
+    setNames(nm = c("condition|replicate", "V1", "V2")) %>%
+    tibble::add_column(
+      "condition_names" = gsub(x = .$`condition|replicate`, pattern = "(.*)\\|(.*)", replacement = "\\1"),
+      "replicate_names" = gsub(x = .$`condition|replicate`, pattern = "(.*)\\|(.*)", replacement = "\\2")
+    ) %>% 
+    dplyr::inner_join(., tibble_metadata, by = intersect(colnames(tibble_metadata), colnames(.))[intersect(colnames(tibble_metadata), colnames(.)) %in% c("condition_names", "replicate_names")])
+  
+  # centroid labels: make a separate file containing the centroid locations
+  tibble_centroid_locations <- tibble_umap_result %>% 
+    dplyr::group_by(condition_names) %>% 
+    dplyr::summarise("centroid_x" = mean(V1),
+                     "centroid_y" = mean(V2)) %>%
+    add_column("cluster_number" = paste(1:nrow(.)), .after = "condition_names")
+  
+  # append cluster info
+  tibble_umap_result_plot <- dplyr::left_join(tibble_umap_result, tibble_centroid_locations, by = "condition_names")
+  
+  if (is.null(input_colour_limits) == TRUE) {
+    
+    input_colour_limits <- c(tibble_umap_result_plot$condition_names %>% unique)
+    
+  }
+  
+  if (is.null(input_colour_value) == TRUE) {
+    
+    input_colour_value <- rainbow(n = (condition_order %>% length))
+    
+  }
+  
+  ggplot_plot <- ggplot() +
+    (if (plot_shapes == TRUE) {geom_point(aes(x = tibble_umap_result_plot$V1, y = tibble_umap_result_plot$V2, shape = tibble_umap_result_plot$replicate_names, color = tibble_umap_result_plot$condition_names, fill = tibble_umap_result_plot$condition_names), size = point_size) } else {geom_blank(aes(x = tibble_umap_result_plot$V1, y = tibble_umap_result_plot$V2))}) +
+    scale_shape_manual(name = "Replicate", values = 1:length(replicate_order)) +
+    (if (centroid_labels == TRUE) {geom_text(data = tibble_umap_result_plot, mapping = do.call(what = aes, args = list("x" = tibble_umap_result_plot$centroid_x, "y" = tibble_umap_result_plot$centroid_y, "label" = tibble_umap_result_plot$cluster_number, "color" = tibble_umap_result_plot$condition_names) %>% purrr::splice(tibble_umap_result %>% dplyr::select(-`condition|replicate`, -V1, -V2, -contains("condition_names"), -contains("replicate_names")) %>% purrr::array_tree(margin = 2))), size = centroid_label_size)} else {geom_blank(aes(x = tibble_umap_result_plot$centroid_x, y = tibble_umap_result_plot$centroid_y))}) +
+    scale_fill_manual(name = "Timepoint", breaks = input_colour_limits, limits = input_colour_limits, values = input_colour_value) +
+    scale_colour_manual(name = "Timepoint", breaks = input_colour_limits, limits = input_colour_limits, values = input_colour_value) +
+    # scale_color_brewer(name = "Timepoint", palette = "Spectral", breaks = condition_order, limits = condition_order) +
+    ggtitle(paste("UMAP projection\n", graph_title, sep = "")) +
+    guides(som_cluster = guide_legend(order = 1)) +
+    # guides(size = FALSE) +
+    xlab("UMAP_1") +
+    ylab("UMAP_2") +
+    theme_bw() +
+    theme(text = element_text(family = "Helvetica"), legend.position = legend_position)
+  
+  plotly::ggplotly(
+    p = ggplot_plot,
+    width = NULL,
+    height = NULL,
+    tooltip = "all",
+    dynamicTicks = FALSE,
+    layerData = "Timepoint",
+    originalData = TRUE,
+  ) %>% 
+    htmlwidgets::saveWidget(paste(save_dir, "/", save_name, ".html", sep = ""))
+  
+  ggsave(plot = ggplot_plot, filename = paste(save_dir, "/", save_name, ".pdf", sep = ""), device = "pdf", dpi = 600, width = width, height = height, units = "cm")
+  # ggsave(plot = ggplot_plot, filename = paste(save_dir, "/", save_name, ".svg", sep = ""), device = "svg", dpi = 600, width = width, height = height, units = "cm")
+  
+  write.table(x = tibble_centroid_locations, file = paste(save_dir, "/", save_name, "_cluster_legend.txt", sep = ""), sep = "\t", quote = FALSE, row.names = FALSE, col.names = TRUE)
+  
+}
+
+# FUNCTION TO PLOT tSNE FOR SAMPLE AND REPLICATE
+# tibble_metadata: this should have n columns equal to the number of annotation to be specified, and m rows equal to number of samples (including replicates). basically a collection of vectors of length equal to number of samples.
+# protected colname: "condition_names", "replicate_names"
+plot_tSNE_for_timepoint_and_replicate_plotly <- function(table_matrix, timepoint_order = NULL, tibble_metadata = NULL, replicate_order = NULL, plot_shapes = TRUE, centroid_labels = TRUE, point_size = 5, centroid_label_size = 4, legend_position = "none", PCA_depths_y = NULL, PCA_depths_x = NULL, input_colour_limits = NULL, input_colour_value = NULL, save_dir = NULL, save_name = NULL, graph_title = NULL, width = 10, height = 10, ...) {
+  
+  # DEBUG ###
+  # table_matrix <- tibble_matrix_absolute_psi_in_sample_replicate_format_with_na
+  # timepoint_order <- temp_condition_names
+  # replicate_order <- c("r1", "r2")
+  # plot_shapes <- FALSE
+  # legend_position <- "none"
+  # centroid_labels <- TRUE
+  # point_size <- 1
+  # centroid_label_size <- 1
+  # PCA_depths_y <- c(2, 3, 4)
+  # PCA_depths_x <- c(1, 2, 3)
+  # input_colour_limits <- tibble_sharp_cluster_mapping$condition_names
+  # tibble_metadata <- tibble_sharp_cluster_mapping %>% dplyr::ungroup() %>% dplyr::rename("som_cluster" = "cluster", "condition_names" = "condition_names") %>% dplyr::select(som_cluster, condition_names, Description, Biological_source, Type) %>% dplyr::mutate_at(.vars = c("Description", "Biological_source", "Type"), .funs = function(x) {gsub(x = x, pattern = "[^a-zA-Z0-9 -/]", replacement = "")}) 
+  # input_colour_value = rainbow(tibble_sharp_cluster_mapping$cluster %>% max) %>% .[tibble_sharp_cluster_mapping$cluster]
+  # save_dir <- R_processing_results_dir
+  # save_name <- paste("atlas_polya_psisigma_consensus_som_clusterone_with_na_plotly", sep = "")
+  # graph_title = "PolyA/PSI-Sigma w/ replicates, coloured by consensus SOM clusters"
+  # width <- 40
+  # height <- 40
+  ###########
+  
+  transposed_matrixtable <- table_matrix %>% t
+  
+  tibble_tsne_result <- Rtsne::Rtsne(X = transposed_matrixtable %>% unique, perplexity = 1, check_duplicates = FALSE, verbose = TRUE, num_threads = 0) %>% .$Y %>% 
+    as_tibble(.name_repair = "unique") %>%
+    add_column("condition_names" = rownames(transposed_matrixtable %>% unique), .before = 1) %>%
+    setNames(nm = c("condition|replicate", "V1", "V2")) %>%
+    add_column("condition_names" = gsub(x = .$`condition|replicate`, pattern = "(.*)\\|(.*)", replacement = "\\1"),
+               "replicate_names" = gsub(x = .$`condition|replicate`, pattern = "(.*)\\|(.*)", replacement = "\\2")
+    ) %>% 
+    dplyr::inner_join(., tibble_metadata, by = intersect(colnames(tibble_metadata), colnames(.))[intersect(colnames(tibble_metadata), colnames(.)) %in% c("condition_names", "replicate_names")])
+  
+  # centroid labels: make a separate file containing the centroid locations
+  tibble_centroid_locations <- tibble_tsne_result %>% 
+    dplyr::group_by(condition_names) %>% 
+    dplyr::summarise("centroid_x" = mean(V1),
+                     "centroid_y" = mean(V2)) %>%
+    add_column("cluster_number" = paste(1:nrow(.)), .after = "condition_names")
+  
+  # append cluster info
+  tibble_tsne_result_plot <- dplyr::left_join(tibble_tsne_result, tibble_centroid_locations, by = "condition_names")
+  
+  if (is.null(input_colour_limits) == TRUE) {
+    
+    input_colour_limits <- c(tibble_tsne_result_plot$condition_names %>% unique)
+    
+  }
+  
+  if (is.null(input_colour_value) == TRUE) {
+    
+    input_colour_value <- rainbow(n = (timepoint_order %>% length))
+    
+  }
+  
+  ggplot_plot <- ggplot() +
+    (if (plot_shapes == TRUE) {geom_point(aes(x = tibble_tsne_result_plot$V1, y = tibble_tsne_result_plot$V2, shape = tibble_tsne_result_plot$replicate_names, color = tibble_tsne_result_plot$condition_names, fill = tibble_tsne_result_plot$condition_names), size = point_size) } else {geom_blank(aes(x = tibble_tsne_result_plot$V1, y = tibble_tsne_result_plot$V2))}) +
+    scale_shape_manual(name = "Replicate", values = 1:length(replicate_order)) +
+    (if (centroid_labels == TRUE) {geom_text(data = tibble_tsne_result_plot, mapping = do.call(what = aes, args = list("x" = tibble_tsne_result_plot$centroid_x, "y" = tibble_tsne_result_plot$centroid_y, "label" = tibble_tsne_result_plot$cluster_number, "color" = tibble_tsne_result_plot$condition_names) %>% purrr::splice(tibble_umap_result %>% dplyr::select(-`condition|replicate`, -V1, -V2, -contains("condition_names"), -contains("replicate_names")) %>% purrr::array_tree(margin = 2))), size = centroid_label_size)} else {geom_blank(aes(x = tibble_tsne_result_plot$centroid_x, y = tibble_tsne_result_plot$centroid_y))}) +
+    scale_fill_manual(name = "Timepoint", breaks = input_colour_limits, limits = input_colour_limits, values = input_colour_value) +
+    scale_colour_manual(name = "Timepoint", breaks = input_colour_limits, limits = input_colour_limits, values = input_colour_value) +
+    # scale_color_brewer(name = "Timepoint", palette = "Spectral", breaks = timepoint_order, limits = timepoint_order) +
+    ggtitle(paste("UMAP projection\n", graph_title, sep = "")) +
+    guides(som_cluster = guide_legend(order = 1)) +
+    # guides(size = FALSE) +
+    xlab("UMAP_1") +
+    ylab("UMAP_2") +
+    theme_bw() +
+    theme(text = element_text(family = "Helvetica"), legend.position = legend_position)
+  
+  plotly::ggplotly(
+    p = ggplot_plot,
+    width = NULL,
+    height = NULL,
+    tooltip = "all",
+    dynamicTicks = FALSE,
+    layerData = "Timepoint",
+    originalData = TRUE,
+  ) %>% 
+    htmlwidgets::saveWidget(paste(save_dir, "/", save_name, ".html", sep = ""))
+  
+  ggsave(plot = ggplot_plot, filename = paste(save_dir, "/", save_name, ".pdf", sep = ""), device = "pdf", dpi = 600, width = width, height = height, units = "cm")
+  # ggsave(plot = ggplot_plot, filename = paste(save_dir, "/", save_name, ".svg", sep = ""), device = "svg", dpi = 600, width = width, height = height, units = "cm")
+  
+  write.table(x = tibble_centroid_locations, file = paste(save_dir, "/", save_name, "_cluster_legend.txt", sep = ""), sep = "\t", quote = FALSE, row.names = FALSE, col.names = TRUE)
+  
+}
+

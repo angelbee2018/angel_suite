@@ -79,18 +79,18 @@ if ((list(input_args$reconstructed_transcript_gtf_path, input_args$reference_gen
 
 # DEBUG #######
 # 
-exon_table_path <- "/mnt/LTS/projects/2020_RNA_atlas/results/R_processing_results_PSISigma/atlas_totalrna_psisigma_LIS_export_for_3FT.txt"
-intron_retention_string <- "IR"
-source_tag <- "atlas_totalrna_psisigma_exons"
-reference_genome_fasta_dir <- "/mnt/LTS/reference_data/hg38_ensembl_reference/raw_genome_fasta/dna_by_chr/"
-output_dir <- "/mnt/LTS/projects/2020_RNA_atlas/results/results_proteome_validation/"
-output_name <- "atlas_totalrna_psisigma_exons_3FT"
+# exon_table_path <- "/mnt/LTS/projects/2020_RNA_atlas/results/R_processing_results_PSISigma/atlas_totalrna_psisigma_LIS_export_for_3FT.txt"
+# intron_retention_string <- "IR"
+# source_tag <- "atlas_totalrna_psisigma_exons"
+# reference_genome_fasta_dir <- "/mnt/LTS/reference_data/hg38_ensembl_reference/raw_genome_fasta/dna_by_chr/"
+# output_dir <- "/mnt/LTS/projects/2020_RNA_atlas/results/results_proteome_validation/"
+# output_name <- "atlas_totalrna_psisigma_exons_3FT"
 # reconstructed_transcript_gtf_path <- "/mnt/LTS/reference_data/hg38_ensembl_reference/gtf/Homo_sapiens.GRCh38.98.gtf"
-reconstructed_transcript_gtf_path <- "/mnt/LTS/projects/2020_RNA_atlas/results/analysis_strawberry_totalrna/atlas_totalrna_stringtiemerged.gtf"
-ncores <- "16x7"
-use_start_codon <- "YES"
-chrmode <- 1
-save_workspace_when_done <- "NO"
+# reconstructed_transcript_gtf_path <- "/mnt/LTS/projects/2020_RNA_atlas/results/analysis_strawberry_totalrna/atlas_totalrna_stringtiemerged.gtf"
+# ncores <- "16x7"
+# use_start_codon <- "YES"
+# chrmode <- 1
+# save_workspace_when_done <- "NO"
 
 # edit our psi-sigma exon tables ###
 
@@ -735,6 +735,7 @@ list_alt_exons_sectored0 <- furrr::future_map(
 list_alt_exons_sectored <- purrr::map(.x = list_alt_exons_sectored0, .f = ~.x$L1_list_alt_exons_sectored) %>% purrr::flatten()
 list_island_intervals <- purrr::map(.x = list_alt_exons_sectored0, .f = ~.x$tibble_island_intervals)
 
+# split the recon GTF now
 list_recon_gtf_sectored0 <- furrr::future_map2(
   .x = list_island_intervals,
   .y = list_recon_gtf_subset_by_chr,
@@ -976,7 +977,7 @@ round_robin_pmap_callr(
           "parent_transcript_stop_codon" = parent_transcript_stop_codon %>% list
         ))
         
-      } )
+      }, .progress = TRUE )
     
     # keep elements that didn't have any matches to GTF
     list_per_chromosome_unmatched <- list_per_chromosome %>% purrr::keep(.p = ~.x$list_matched_GTF_exon_entries %>% length == 0)
