@@ -129,20 +129,20 @@ tempdir <- input_args$tempdir
 #              "custom_identifier" = NA)
 # 
 
-# junction_table_path <- "/mnt/LTS/projects/2020_RNA_atlas/results/R_processing_results_PSISigma/atlas_totalrna_psisigma_VSR_junctions_export_for_3FT.txt"
-# intron_retention_string <- "IR"
-# reconstructed_gtf_path <- "/mnt/LTS/projects/2020_RNA_atlas/results/analysis_strawberry_totalrna/atlas_totalrna_stringtiemerged.gtf"
-# source_tag <- "atlas_totalrna_psisigma_VSR_junctions"
-# reference_genome_fasta_dir <- "/mnt/LTS/reference_data/hg38_ensembl_reference/raw_genome_fasta/dna_by_chr/"
-# upstream_window_size <- 50
-# downstream_window_size <- 50
-# output_name <- "atlas_totalrna_psisigma_VSR_junctions_3FT"
-# output_dir <- "/mnt/LTS/projects/2020_RNA_atlas/results/results_proteome_validation/"
-# ncores <- "16x7"
-# chrmode <- 1
-# nonchrname <- NULL
-# save_workspace_when_done <- "YES"
-# tempdir <- "/mnt/scratch/temp/"
+junction_table_path <- "/mnt/LTS/projects/2020_RNA_atlas/results/R_processing_results_MAJIQ/atlas_totalrna_majiq_export_for_3FT.txt"
+intron_retention_string <- "IR"
+reconstructed_gtf_path <- "/mnt/LTS/projects/2020_RNA_atlas/results/analysis_strawberry_totalrna/atlas_totalrna_ensembl_stringtiemerged.gtf"
+source_tag <- "atlas_totalrna_majiq_recon_ensembl"
+reference_genome_fasta_dir <- "/mnt/LTS/reference_data/hg38_ensembl_reference/raw_genome_fasta/dna_by_chr/"
+upstream_window_size <- 50
+downstream_window_size <- 50
+output_name <- "atlas_totalrna_majiq_recon_ensembl_3FT"
+output_dir <- "/mnt/LTS/projects/2020_RNA_atlas/results/results_proteome_validation/"
+ncores <- "96x1"
+chrmode <- 1
+nonchrname <- NULL
+save_workspace_when_done <- "YES"
+tempdir <- "/mnt/scratch/temp/"
 
 ##################################
 
@@ -174,6 +174,8 @@ if(!dir.exists(tempdir) ) {
 
 # manage parrallellisation rrlllRll
 
+options(future.globals.maxSize = 30000000000, future.fork.enable = TRUE)
+
 max_number_of_cores <- parallel::detectCores()
 
 if (grepl(x = ncores, pattern = "x") == FALSE) {
@@ -188,29 +190,27 @@ if (grepl(x = ncores, pattern = "x") == FALSE) {
   
 } else if (grepl(x = ncores, pattern = "x") == TRUE) {
   
-  ncores_level_1 <- ncores %>% strsplit(split = "x") %>% unlist %>% .[1] %>% type.convert
-  ncores_level_2 <- ncores %>% strsplit(split = "x") %>% unlist %>% .[2] %>% type.convert
+  ncores_level_1 <- ncores %>% strsplit(split = "x") %>% unlist %>% .[1] %>% type.convert(as.is = TRUE)
+  ncores_level_2 <- ncores %>% strsplit(split = "x") %>% unlist %>% .[2] %>% type.convert(as.is = TRUE)
   
-  plan(list(tweak(multiprocess, workers = ncores_level_1, gc = TRUE), 
-            tweak(multiprocess, workers = ncores_level_2, gc = TRUE))
+  plan(list(tweak(multicore, workers = ncores_level_1, gc = TRUE), 
+            tweak(multicore, workers = ncores_level_2, gc = TRUE))
   )
   
-  cat((ncores %>% strsplit(split = "x") %>% unlist %>% .[1] %>% type.convert) * (ncores %>% strsplit(split = "x") %>% unlist %>% .[2] %>% type.convert), "cores will be used in total\n")
+  cat((ncores %>% strsplit(split = "x") %>% unlist %>% .[1] %>% type.convert(as.is = TRUE)) * (ncores %>% strsplit(split = "x") %>% unlist %>% .[2] %>% type.convert(as.is = TRUE)), "cores will be used in total\n")
   cat("first layer:", ncores_level_1, "cores\n")
   cat("second layer:", ncores_level_2, "cores\n")
   
 }
 
-options(future.globals.maxSize = 30000000000, future.fork.enable = TRUE)
-
 # set layered parallelisation in furrr
 
 # if ((number_of_workers - length(vector_chr_in_common)) %/% number_of_workers > 1) {
-#   plan(list(tweak(multiprocess, workers = min(number_of_workers, length(vector_chr_in_common))), 
-#             tweak(multiprocess, workers = (number_of_workers - length(vector_chr_in_common)) %/% number_of_workers))
+#   plan(list(tweak(multicore, workers = min(number_of_workers, length(vector_chr_in_common))), 
+#             tweak(multicore, workers = (number_of_workers - length(vector_chr_in_common)) %/% number_of_workers))
 # )
 # } else {
-#   plan(multiprocess, workers = number_of_workers)
+#   plan(multicore, workers = number_of_workers)
 # }
 
 # activate the below if linux R starts acting up
@@ -219,7 +219,7 @@ options(future.globals.maxSize = 30000000000, future.fork.enable = TRUE)
 #   
 #   cat("number of workers:", number_of_workers, "\n")
 #   
-#   future::plan(multiprocess)
+#   future::plan(multicore)
 #   options(future.globals.maxSize = 30000000000, mc.cores = input_args$ncores)
 #   
 # } else {
@@ -436,9 +436,9 @@ vector_ref_genome_paths_by_chr <- paste(reference_genome_fasta_dir, list.files(r
 # total_peptide_window_size <- upstream_window_size + downstream_window_size
 # cat("total translation window size:", total_peptide_window_size, "\n")
 
-tibble_reconstructed_gtf <- rtracklayer::import(reconstructed_gtf_path) %>% as_tibble %>% dplyr::mutate_if(is.factor, as.character) %>% type_convert
+tibble_recon_gtf <- rtracklayer::import(reconstructed_gtf_path) %>% as_tibble %>% dplyr::mutate_if(is.factor, as.character) %>% type_convert
 # list-ify the recon GTF by chromosome
-list_recon_gtf_subset_by_chr <- tibble_reconstructed_gtf %>% dplyr::group_split(seqnames)
+list_recon_gtf_subset_by_chr <- tibble_recon_gtf %>% dplyr::group_split(seqnames)
 
 names(list_recon_gtf_subset_by_chr) <- list_recon_gtf_subset_by_chr %>% purrr::map(.f = ~.x$seqnames %>% unique) %>% unlist
 
@@ -487,8 +487,10 @@ vector_ref_genome_paths_by_chr_position <- vector_chr_in_common %>% purrr::map(.
 # fetch full path of ref. genome fasta
 vector_ref_genome_fasta_path <- paste(vector_ref_genome_paths_by_chr[vector_ref_genome_paths_by_chr_position])
 
-plan(list(tweak(multiprocess, workers = ncores_level_1),
-          tweak(multiprocess, workers = ncores_level_2)))
+plan(list(tweak(multicore, workers = ncores_level_1),
+          tweak(multicore, workers = ncores_level_2)))
+
+number_of_entries_per_chunk <- 8
 
 # further split each chromosome list into smaller sectors to reduce parallel overhead. we do this by chunking across the genome.
 list_junction_table_sectored0 <- furrr::future_map(
@@ -525,7 +527,7 @@ list_junction_table_sectored0 <- furrr::future_map(
     
     # join islands to prevent having too many list elements and having the same transcript appear many many times in the split GTF
     list_islands_joined_sectored <- purrr::map(
-      .x = split(x = 1:nrow(tibble_island_intervals), f = ceiling(seq_along(1:nrow(tibble_island_intervals))/200)),
+      .x = split(x = 1:nrow(tibble_island_intervals), f = ceiling(seq_along(1:nrow(tibble_island_intervals))/number_of_entries_per_chunk)),
       .f = ~tibble_island_intervals[.x, ])
     ## new, amalgamated intervals
     tibble_island_intervals <- list_islands_joined_sectored %>% purrr::map(~tibble("chr" = .x$chr %>% unique %>% .[1], "start" = .x$start %>% .[1], "end" = .x$end %>% .[nrow(.x)], "strand" = .x$strand %>% unique %>% .[1])) %>% 
@@ -585,12 +587,11 @@ list_recon_gtf_sectored0 <- furrr::future_map2(
 
 list_recon_gtf_sectored <- list_recon_gtf_sectored0 %>% purrr::flatten()
 
-
 print("Number of GTF entries safely omitted:")
 print((list_recon_gtf_sectored %>% purrr::map(~.x %>% nrow) %>% unlist %>% sum) - nrow(tibble_recon_gtf))
 
-plan(list(tweak(multiprocess, workers = ncores_level_1),
-          tweak(multiprocess, workers = ncores_level_2)))
+plan(list(tweak(multicore, workers = ncores_level_1),
+          tweak(multicore, workers = ncores_level_2)))
 
 cat("match VSRs to reconstructed transcriptome + 3FT\n")
 
@@ -604,10 +605,12 @@ round_robin_pmap_callr(
     "a4" = setdiff(1:length(list_junction_table_sectored), list.files(paste(tempdir, sep = ""), pattern = paste(output_name, "_list_3FT_result_temp_", sep = "")) %>% gsub(pattern = ".*_temp_(\\d+).Rlist", replacement = "\\1", perl = TRUE) %>% type.convert(as.is = TRUE))
   ),
   .num_workers = ncores_level_1,
-  .temp_path = paste(output_dir, "/temp/", output_name, "_callr_export_3FT_temp.RData", sep = ""),
-  .status_messages_dir <- paste(output_dir, "temp/", sep = ""),
-  .job_name <- output_name,
+  .env_flag = "user",
   .re_export = TRUE,
+  .temp_path = paste(tempdir, output_name, "_list_3FT_result_temp.RData", sep = ""),
+  .objects = ls() %>% .[! . %in% c("list_recon_gtf_sectored", "list_recon_gtf_sectored0", "list_recon_gtf_subset_by_chr", "tibble_recon_gtf")],
+  .status_messages_dir = paste(tempdir, sep = ""),
+  .job_name = "list_3FT_result",
   .f = function(a1, a2, a3) {
     
     # CALLR ###
@@ -629,10 +632,10 @@ round_robin_pmap_callr(
     ###########
     
     # DEBUG ###
-    # a1 <- list_junction_table_sectored %>% .[setdiff(1:length(list_junction_table_sectored), list.files(paste(tempdir, sep = ""), pattern = paste(output_name, "_list_3FT_result_temp_", sep = "")) %>% gsub(pattern = ".*_temp_(\\d+).Rlist", replacement = "\\1", perl = TRUE) %>% type.convert(as.is = TRUE))] %>% .[[1]]
-    # a2 <- list_recon_gtf_sectored %>% .[setdiff(1:length(list_junction_table_sectored), list.files(paste(tempdir, sep = ""), pattern = paste(output_name, "_list_3FT_result_temp_", sep = "")) %>% gsub(pattern = ".*_temp_(\\d+).Rlist", replacement = "\\1", perl = TRUE) %>% type.convert(as.is = TRUE))] %>% .[[1]]
-    # a3 <- purrr::map2(.x = list_island_intervals, .y = vector_ref_genome_fasta_path, .f = ~rep(.y, times = nrow(.x))) %>% flatten %>% .[setdiff(1:length(list_junction_table_sectored), list.files(paste(tempdir, sep = ""), pattern = paste(output_name, "_list_3FT_result_temp_", sep = "")) %>% gsub(pattern = ".*_temp_(\\d+).Rlist", replacement = "\\1", perl = TRUE) %>% type.convert(as.is = TRUE))] %>% .[[1]]
-    # a4 <- setdiff(1:length(list_junction_table_sectored), list.files(paste(tempdir, sep = ""), pattern = paste(output_name, "_list_3FT_result_temp_", sep = "")) %>% gsub(pattern = ".*_temp_(\\d+).Rlist", replacement = "\\1", perl = TRUE) %>% type.convert(as.is = TRUE)) %>% .[[1]]
+    a1 <- list_junction_table_sectored %>% .[setdiff(1:length(list_junction_table_sectored), list.files(paste(tempdir, sep = ""), pattern = paste(output_name, "_list_3FT_result_temp_.*.Rlist", sep = "")) %>% gsub(pattern = ".*_temp_(\\d+).Rlist", replacement = "\\1", perl = TRUE) %>% type.convert(as.is = TRUE))] %>% .[[1]]
+    a2 <- list_recon_gtf_sectored %>% .[setdiff(1:length(list_junction_table_sectored), list.files(paste(tempdir, sep = ""), pattern = paste(output_name, "_list_3FT_result_temp_.*.Rlist", sep = "")) %>% gsub(pattern = ".*_temp_(\\d+).Rlist", replacement = "\\1", perl = TRUE) %>% type.convert(as.is = TRUE))] %>% .[[1]]
+    a3 <- purrr::map2(.x = list_island_intervals, .y = vector_ref_genome_fasta_path, .f = ~rep(.y, times = nrow(.x))) %>% flatten %>% .[setdiff(1:length(list_junction_table_sectored), list.files(paste(tempdir, sep = ""), pattern = paste(output_name, "_list_3FT_result_temp_.*.Rlist", sep = "")) %>% gsub(pattern = ".*_temp_(\\d+).Rlist", replacement = "\\1", perl = TRUE) %>% type.convert(as.is = TRUE))] %>% .[[1]]
+    a4 <- setdiff(1:length(list_junction_table_sectored), list.files(paste(tempdir, sep = ""), pattern = paste(output_name, "_list_3FT_result_temp_.*.Rlist", sep = "")) %>% gsub(pattern = ".*_temp_(\\d+).Rlist", replacement = "\\1", perl = TRUE) %>% type.convert(as.is = TRUE)) %>% .[[1]]
     ###########
     
     # Strategy: match junctions to transcripts with directly flanking exons
@@ -643,13 +646,43 @@ round_robin_pmap_callr(
     # cat("temporary allocation to ref genome fasta list\n")
     reference_genome_fasta_chr_temp <- seqinr::read.fasta(file = a3, forceDNAtolower = FALSE)
     
-    plan(list(tweak(multiprocess, workers = ncores_level_2),
-              tweak(multiprocess, workers = 1)))
+    plan(list(tweak(multicore, workers = ncores_level_2),
+              tweak(multicore, workers = 1)))
     
     # execute pipeline
-    list_3FT_result_temp <- furrr::future_imap(
-      .x = a1 %>% purrr::array_tree(),
+    list_3FT_result_temp <- round_robin_pmap_callr(
+      .l = list(
+        "b1" = a1 %>% purrr::array_tree(),
+        "b2" = 1:length(a1 %>% purrr::array_tree())
+      ),
+      .num_workers = ncores_level_1,
+      .env_flag = "user",
+      .re_export = FALSE,
+      .temp_path = paste(tempdir, output_name, "_list_3FT_result_temp_L1x", a4, ".RData", sep = ""),
+      .temp_dir = tempdir,
+      .objects = c(ls() %>% .[! . %in% c("list_recon_gtf_sectored", "list_recon_gtf_sectored0", "list_recon_gtf_subset_by_chr", "tibble_recon_gtf", "tibble_junction_table")], "a1", "a2", "a3", "a4", "reference_genome_fasta_chr_temp"),
+      .status_messages_dir = paste(tempdir, sep = ""),
+      .job_name = paste("list_3FT_result_L1x", a4, sep = ""),
+      .result_mode = "unordered",
       .f = function(b1, b2) {
+        
+        # CALLR ###
+        library(seqinr)
+        library(tidyverse)
+        library(furrr)
+        library(rtracklayer)
+        library(data.table)
+        library(optparse)
+        library(regioneR)
+        
+        library(tictoc)
+        # start counting execution time of the whole script
+        tictoc::tic("Overall execution time")
+        
+        options(future.globals.maxSize = 30000000000, future.fork.enable = TRUE)
+        
+        plan(list(tweak(multicore, workers = ncores_level_2)))
+        ###########
         
         # DEBUG ###
         # b1 <- a1 %>% purrr::array_tree() %>% .[[1]]
@@ -811,7 +844,7 @@ round_robin_pmap_callr(
         
         return(b1)
         
-      }, .progress = TRUE ) # L2
+      } ) # L2
     
     # flatten and distribute the fasta header into all of its child 3FT results
     list_3FT_result_unnest_temp <- list_3FT_result_temp %>% purrr::discard(.p = ~.x %>% length == 0) %>% purrr::discard(.p = ~.x$`3FT_info` %>% length == 0) %>% purrr::map(.x = list_3FT_result_temp, .f = ~purrr::cross2(.x[c("chr", "start", "end", "strand", "gene_name", "fasta_header", "final_identifier", "splicemode")] %>% list, .x$`3FT_info`)) %>% flatten %>% purrr::map(.f = ~.x %>% flatten)
@@ -871,7 +904,7 @@ tibble_three_frame_translate_result0 <- purrr::reduce(
     
     # DEBUG ###
     # a1 <- list(tibble())
-    # a2 <- list.files(path = paste(tempdir, sep = ""), pattern = paste(output_name, "_list_3FT_result_temp_.*.Rlist", sep = ""), full.names = TRUE) %>% as.list %>% .[[504]]
+    # a2 <- list.files(path = paste(tempdir, sep = ""), pattern = paste(output_name, "_list_3FT_result_temp_.*.Rlist", sep = ""), full.names = TRUE) %>% as.list %>% .[[8]]
     ###########
     
     message(a2)
@@ -898,9 +931,7 @@ tibble_three_frame_translate_result0 <- purrr::reduce(
     
   } )
 
-if (save_workspace_when_done == "DEBUG") {
-  data.table::fwrite(x = tibble_three_frame_translate_result0, file = paste(output_dir, "/", output_name, "_tibble_three_frame_translate_result0.txt", sep = ""), sep = "\t", col.names = TRUE, row.names = FALSE, quote = FALSE)
-}
+data.table::fwrite(x = tibble_three_frame_translate_result0, file = paste(output_dir, "/", output_name, "_tibble_three_frame_translate_result0.txt", sep = ""), sep = "\t", col.names = TRUE, row.names = FALSE, quote = FALSE)
 
 # remove entries with no valid translations. 
 tibble_three_frame_translate_result1 <- tibble_three_frame_translate_result0[tibble_three_frame_translate_result0$virtual_peptide_sequence != "NONE_VALID" & !is.na(tibble_three_frame_translate_result0$virtual_peptide_sequence), ]
@@ -908,8 +939,8 @@ tibble_three_frame_translate_result1 <- tibble_three_frame_translate_result0[tib
 # remove all rows with duplicated u/dORF_valid columns from the table
 tibble_three_frame_translate_result2 <- tibble_three_frame_translate_result1[!(duplicated(tibble_three_frame_translate_result1$virtual_peptide_sequence)) & !is.na(tibble_three_frame_translate_result1$virtual_peptide_sequence), ]
 
-plan(list(tweak(multiprocess, workers = ncores_level_1*ncores_level_2),
-          tweak(multiprocess, workers = 1)))
+plan(list(tweak(multicore, workers = ncores_level_1*ncores_level_2),
+          tweak(multicore, workers = 1)))
 
 tibble_three_frame_translate_result3 <- tibble_three_frame_translate_result2 %>% 
   # add column to indicate if the virtual peptide per row is a substring of another row
@@ -918,24 +949,40 @@ tibble_three_frame_translate_result3 <- tibble_three_frame_translate_result2 %>%
 # filter out substrings
 tibble_three_frame_translate_result4 <- tibble_three_frame_translate_result3 %>% dplyr::filter(substring_or_not == FALSE)
 
+# fix up columns that are ORF side specific
+tibble_three_frame_translate_result5 <- tibble_three_frame_translate_result4 %>% 
+  dplyr::mutate("junction_AA_position" = purrr::pmap(
+    .l = list(
+      "a1" = `junction_AA_position_upstream`, 
+      "a2" = `junction_AA_position_downstream`, 
+      "a3" = `ORF_type`), 
+    .f = function(a1, a2, a3) {
+      if (a3 == "uORF") {
+        return(a1)
+      } else if (a3 == "dORF") {
+        return(a2)
+      }
+    }
+  ) %>% unlist )
+
 # tally up the number of valid frames we ended up with
-tibble_junctions_frame_tally <- tibble_three_frame_translate_result4 %>% dplyr::distinct(translation_frame, fasta_header) %>% dplyr::group_by(fasta_header) %>% dplyr::summarise("tally" = n())
+tibble_junctions_frame_tally <- tibble_three_frame_translate_result5 %>% dplyr::distinct(translation_frame, fasta_header) %>% dplyr::group_by(fasta_header) %>% dplyr::summarise("tally" = n())
 
 cat("\nnumber of junctions input: ", tibble_junction_table %>% dplyr::distinct(chr, start, end, strand) %>% nrow, "\n")
-cat("\nnumber of junctions translated: ", tibble_three_frame_translate_result4$final_identifier %>% unique %>% length, "\n")
+cat("\nnumber of junctions translated: ", tibble_three_frame_translate_result5$final_identifier %>% unique %>% length, "\n")
 cat("\naverage number of translation frames for UNIQUE junction sequences: ", mean(tibble_junctions_frame_tally$tally), "\n")
 
 # WE WRITE A TIBBLE CONTAINING THE GENOME COORD-PEPTIDE MAPPING
 # write a table
-data.table::fwrite(x = tibble_three_frame_translate_result4, file = paste(output_dir, "/", output_name, "_3FT.summary.info.txt", sep = ""), sep = "\t", col.names = TRUE, row.names = FALSE, quote = FALSE)
+data.table::fwrite(x = tibble_three_frame_translate_result5, file = paste(output_dir, "/", output_name, "_3FT.summary.info.txt", sep = ""), sep = "\t", col.names = TRUE, row.names = FALSE, quote = FALSE)
 
 # FINALLY! WE WRITE THE FASTA!
-write.fasta(sequences = tibble_three_frame_translate_result4$virtual_peptide_sequence %>% array_tree %>% flatten, names = tibble_three_frame_translate_result4$fasta_header, file.out = paste(output_dir, "/", output_name, ".fasta", sep = ""), open = "w", nbchar = 40, as.string = TRUE)
+write.fasta(sequences = tibble_three_frame_translate_result5$virtual_peptide_sequence %>% array_tree %>% flatten, names = tibble_three_frame_translate_result5$fasta_header, file.out = paste(output_dir, "/", output_name, ".fasta", sep = ""), open = "w", nbchar = 40, as.string = TRUE)
 
 # write final junction table as .bed file
 cat(paste("track name=\"Alternative junctions\" description=\"", output_name, "\" graphType=junctions\n", sep = ""), file = paste(output_dir, "/", output_name, "_junctions.bed", sep = ""))
 
-junc_bed_table <- tibble_three_frame_translate_result4[, c("chr", "start", "end", "final_identifier", "strand")] %>% setNames(c("chr", "start", "end", "name", "strand")) %>% add_column(., "score" = 1000, .after = "name") %>% type_convert
+junc_bed_table <- tibble_three_frame_translate_result5[, c("chr", "start", "end", "final_identifier", "strand")] %>% setNames(c("chr", "start", "end", "name", "strand")) %>% add_column(., "score" = 1000, .after = "name") %>% type_convert
 
 write.table(junc_bed_table, file = paste(output_dir, "/", output_name, "_junctions.bed", sep = ""), sep = "\t", col.names = FALSE, row.names = FALSE, quote = FALSE, append = TRUE)
 

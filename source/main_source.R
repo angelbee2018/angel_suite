@@ -4,30 +4,40 @@
 ## true round robin
 ## one line per process
 ## global environment automatically exported via temp file
-round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, .re_export = TRUE, .status_messages_dir, .job_name, ...) {
+## three personalities are permitted using the option .result_mode: 1. save - do not return result, just save to disk; 2. ordered - return result but in order (at each tick, check if we have consecutive saved files ready before splicing them into a single list); 3. unordered - return list elements as they arrive
+
+# test <- round_robin_pmap_callr(
+#   .l = list(
+#     "b1" = a1 %>% purrr::array_tree() %>% head,
+#     "b2" = 1:length(a1 %>% purrr::array_tree() %>% head)
+#   ),
+#   .num_workers = 4,
+#   .env_flag = "user",
+#   .re_export = FALSE,
+#   .temp_path = paste(tempdir, output_name, "_list_3FT_result_temp_L1x", a4, ".RData", sep = ""),
+#   .temp_dir = tempdir,
+#   .objects = c(ls() %>% .[! . %in% c("list_recon_gtf_sectored", "list_recon_gtf_sectored0", "list_recon_gtf_subset_by_chr", "tibble_recon_gtf", "tibble_junction_table")], "a1", "a2", "a3", "a4", "reference_genome_fasta_chr_temp"),
+#   .status_messages_dir = paste(tempdir, sep = ""),
+#   .job_name = paste("list_3FT_result_L1x", a4, sep = ""),
+#   .result_mode = "unordered",
+#   .f = function(b1, b2) {return(list(LETTERS[b2]))}
+
+round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, .temp_dir = NULL, .re_export = FALSE, .env_flag = "global", .objects, .status_messages_dir, .job_name, .result_mode = "save", ...) {
   
   # DEBUG ###
-  # .l <- list("a1" = 1:100, "a2" = 101:200)
-  # .f <- function(a1) {Sys.sleep(30); return(a1 + 1)}
-  # .f <- function(a1) {Sys.sleep(5); stop()}
-  # .f <- function(a1, a2) {message("messagetest"); warning("warningtest"); return(a1 + a2)}
-  # .num_workers <- 8
-  # .temp_path <- "/mnt/LTS/projects/2020_RNA_atlas/results/results_proteome_validation/temp/atlas_polya_psisigma_exons_3FT_unmatched_list_131_temp.RData"
-  # .status_messages_dir <- "/mnt/LTS/projects/2020_RNA_atlas/results/results_proteome_validation/temp/"
-  # .job_name <- "test"
-  # .re_export <- FALSE
-  
-  # .l <- list(
-  #   "a1" = 1:length(list_alt_exons_sectored),
-  #   "a2" = purrr::map2(.x = list_island_intervals, .y = vector_ref_genome_fasta_path, .f = ~rep(.y, times = nrow(.x))) %>% flatten
-  #   # setdiff(1:length(list_alt_exons_sectored), list.files(paste(output_dir, "/temp/", sep = ""), pattern = "list_three_frame_translation") %>% gsub(pattern = ".*_(\\d+)_temp.RData", replacement = "\\1", perl = TRUE) %>% type.convert(as.is = TRUE))
+  # .l = list(
+  #   "b1" = a1 %>% purrr::array_tree(),
+  #   "b2" = 1:length(a1 %>% purrr::array_tree())
   # )
-  # .f <- testfun
-  # .num_workers <- 8
-  # .temp_path <- paste(output_dir, "/temp/", output_name, "_callr_export_3FT_temp.RData", sep = "")
-  # .status_messages_dir <- paste(output_dir, "temp/", sep = "")
-  # .job_name <- output_name
-  # .re_export <- FALSE
+  # .num_workers = ncores_level_1
+  # .env_flag = "user"
+  # .re_export = FALSE
+  # .temp_path = paste(tempdir, output_name, "_list_3FT_result_temp_L1x", a4, ".RData", sep = "")
+  # .temp_dir = tempdir
+  # .objects = c(ls() %>% .[! . %in% c("list_recon_gtf_sectored", "list_recon_gtf_sectored0", "list_recon_gtf_subset_by_chr", "tibble_recon_gtf", "tibble_junction_table")], "a1", "a2", "a3", "a4", "reference_genome_fasta_chr_temp")
+  # .status_messages_dir = paste(tempdir, sep = "")
+  # .job_name = paste("list_3FT_result_L1x", a4, sep = "")
+  # .result_mode = "unordered"
   ###########
   
   system("ulimit -n 65536")
@@ -37,8 +47,17 @@ round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, 
   }
   
   # save the current env into temp path
-  if (!file.exists(.temp_path) | .re_export == TRUE) {
-    save.image(file = .temp_path, ...)
+  if (.re_export == FALSE & file.exists(.temp_path)) {
+    message("Temp object data file found. Will load that instead of re-exporting")
+  } else {
+    message("Exporting object data file")
+    
+    if (.env_flag == "global") {
+      save.image(file = .temp_path, ...)
+    } else if (.env_flag == "user") {
+      save(list = .objects, file = .temp_path, ...)
+    }
+    
   }
   
   # check if all the list elements are of equal length
@@ -65,18 +84,137 @@ round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, 
     formals(fun = function_current_instance) <- list_current_arguments
     
     # essential to spike the exported function with a command to read the environment back in
-    body(function_current_instance) <- as.call(purrr::prepend(as.list(body(function_current_instance)), expression(load(file = commandArgs()[2])), before = 2))
+    body(function_current_instance) <- as.call(purrr::prepend(as.list(body(function_current_instance)), str2expression(paste("load(file = \"", .temp_path, "\")", sep = "")), before = 2))
+    
+    # modify the function depending on what is specified
+    if (.result_mode %in% c("ordered", "unordered")) {
+      
+      function_to_run <- function(f) {
+        return(NULL)
+      }
+      
+      body(function_to_run) <- as.call(purrr::prepend(as.list(body(function_to_run)), str2expression(paste("saveRDS(object = f(), file = \"", paste(.temp_dir, "/", .job_name, "_chunk_", ..i, ".rds\")", sep = ""), sep = "")), before = 2))
+      
+    } else {
+      function_to_run <- function_current_instance
+    }
     
     assign(
-      x = paste("worker_", ..i, sep = ""), 
+      x = paste("chunk_", ..i, sep = ""), 
       value = callr::r_bg(
-        cmdargs	= .temp_path,
-        func = function_current_instance
+        cmdargs	= c(.temp_path, ..i),
+        args = list("f" = function_current_instance),
+        func = function_to_run
       )
     )
     
-    list_workers <- purrr::splice(list_workers, get(paste("worker_", ..i, sep = "")))
-    names(list_workers)[length(list_workers)] <- paste("worker_", ..i, sep = "")
+    list_workers <- purrr::splice(list_workers, get(paste("chunk_", ..i, sep = "")))
+    names(list_workers)[length(list_workers)] <- paste("chunk_", ..i, sep = "")
+    
+  }
+  
+  # SPLICER
+  ## splice lists as we go, depending if we want consecutive or not
+  if (.result_mode %in% c("ordered", "unordered")) {
+    
+    system(command = paste("touch ", paste(.temp_dir, "/", .job_name, "_chunkstatus.txt", sep = ""), sep = ""))
+    
+    assign(
+      x = "splicer", 
+      value = callr::r_bg(
+        cmdargs	= "splicer",
+        args = list("map_length" = map_length, ".temp_dir" = .temp_dir, ".job_name" = .job_name, ".result_mode" = .result_mode),
+        stdout = paste(.temp_dir, "/", .job_name, "_splicestatus_stdout.txt", sep = ""),
+        stderr = paste(.temp_dir, "/", .job_name, "_splicestatus_stderr.txt", sep = ""),
+        func = function(map_length, .temp_dir, .job_name, .result_mode) {
+          
+          library(tidyverse)
+          
+          list_result <- list()
+          
+          current_chunks_spliced <- numeric()
+          
+          while (length(list_result) < map_length) {
+            
+            # read the vector of completed chunks
+            vector_completed_chunks <- type.convert(readLines(con = paste(.temp_dir, "/", .job_name, "_chunkstatus.txt", sep = "")), as.is = TRUE)
+            
+            # unserialize(socketConnection(host = "localhost", port = 7019, server = TRUE, blocking = TRUE))
+            vector_chunks_to_be_spliced <- setdiff(vector_completed_chunks, current_chunks_spliced) %>% sort
+            
+            print("vector_completed_chunks")
+            print(vector_completed_chunks)
+            
+            print("current_chunks_spliced")
+            print(current_chunks_spliced)
+            
+            print("vector_chunks_to_be_spliced")
+            print(vector_chunks_to_be_spliced)
+            
+            # consider order
+            if (length(vector_chunks_to_be_spliced) > 0) {
+              
+              # if order is important, simply drop non-consecutive terms from the vector_chunks_to_be_spliced. they will reappear later when the terms in the middle are available.
+              if (.result_mode == "ordered") {
+                
+                tibble_diffs <- tibble("n" = c(length(list_result), vector_chunks_to_be_spliced) %>% sort, "n_minus_1" = c(vector_chunks_to_be_spliced %>% sort, NA)) %>% dplyr::mutate("diff" = `n_minus_1` - `n`)
+                index_last_consecutive <- which(tibble_diffs$diff > 1) %>% .[1]
+                
+                vector_chunks_to_be_spliced <- tibble_diffs$n %>% .[1:index_last_consecutive]
+                
+                vector_chunks_to_be_spliced <- vector_chunks_to_be_spliced[-1]
+                
+              }
+              
+            }
+            
+            # splice in terms
+            if (length(vector_chunks_to_be_spliced) > 0) {
+              
+              list_new_chunks <- purrr::map(
+                .x = vector_chunks_to_be_spliced,
+                .f = function(a1) {
+                  
+                  chunk <- readRDS(file = paste(.temp_dir, "/", .job_name, "_chunk_", a1, ".rds", sep = ""))
+                  
+                  return(chunk)
+                  
+                } )
+              
+              list_result <- purrr::splice(list_result, list_new_chunks)
+              
+              current_chunks_spliced <- c(current_chunks_spliced, vector_chunks_to_be_spliced) %>% sort
+              
+            }
+            
+            print(x = paste("[", date(), "] Splice progress: ", length(list_result), "/", map_length, sep = ""))
+            writeLines(text = paste("[", date(), "] Splice progress: ", length(list_result), "/", map_length, sep = ""), con = paste(.temp_dir, "/", .job_name, "_splicestatus.txt", sep = ""))
+            
+            Sys.sleep(1)
+            
+          }
+          
+          # start communicating with core process to initiate socket transfer
+          cat("Splice progress: transferring spliced list...")
+          
+          # saveRDS(object = list_result, file = paste(.temp_dir, "/", .job_name, "_spliced.rds", sep = ""))
+          
+          writeLines(text = "ready_to_send_splice", con = paste(.temp_dir, "/", .job_name, "_splicestatus.txt", sep = ""))
+          
+          # wait on host process to be ready
+          while (readLines(con = paste(.temp_dir, "/", .job_name, "_chunkstatus.txt", sep = "")) %>% grepl(pattern = "receiving_splice") %>% any == FALSE) {
+            Sys.sleep(1)
+          }
+          
+          Sys.sleep(2)
+          
+          serialize(object = list_result, connection = socketConnection(host = "localhost", port = 7020, server = FALSE, blocking = TRUE), xdr = FALSE)
+          
+          return(NULL)
+          
+        }
+      )
+    )
     
   }
   
@@ -94,6 +232,11 @@ round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, 
       .x = list_workers, 
       .y = names(list_workers), 
       .f = function(a1, a2) {
+        
+        # DEBUG ###
+        # a1 <- list_workers[[8]]
+        # a2 <- names(list_workers) %>% .[[8]]
+        ###########
         
         stdout_lines <- a1$read_output_lines()
         stderr_lines <- a1$read_error_lines()
@@ -116,15 +259,23 @@ round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, 
     
     if (any(unlist(list_logical_any_error)) == TRUE) {
       purrr::map(.x = list_workers, .f = ~.x$signal(9))
-      stop(print(paste("Stop error received on workers:", paste(names(list_workers)[which(unlist(list_logical_any_error))], collapse = ", "))))
+      stop(print(paste("Stop error received on chunks:", paste(names(list_workers)[which(unlist(list_logical_any_error))], collapse = ", "))))
     }
     
     # round robin action until the list is fully mapped
-    if (current_map_index < map_length) {
+    
+    # if any error, stop all
+    if (any(unlist(purrr::map(.x = list_workers, .f = ~.x$get_exit_status())) != 0)) {
+      purrr::map(.x = list_workers, .f = ~.x$signal(9))
+      stop(print(paste("Exit status failure received on chunks:", paste(names(list_workers)[which(unlist(purrr::map(.x = list_workers, .f = ~.x$get_exit_status())) != 0)], collapse = ", "))))
+    } else if (current_map_index == map_length & length(which(vector_logical_indices_workers_completed_reported)) == map_length) {
+      break()
+    } else if (current_map_index <= map_length) {
       
       number_of_processes_alive <- length(which(unlist(purrr::map(.x = list_workers, .f = ~.x$is_alive()))))
       
-      if (number_of_processes_alive < .num_workers) {
+      # add more processes as long as we need to fill up worker slots and we're not at the end of the list yet
+      if (number_of_processes_alive < .num_workers & current_map_index < map_length) {
         
         new_map_start <- current_map_index + 1
         new_map_end <- min(c(current_map_index + .num_workers - number_of_processes_alive, map_length))
@@ -133,52 +284,99 @@ round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, 
         
         for (..i in (new_map_start):min(c(new_map_end, map_length))) {
           
+          # print("..i")
+          # print(..i)
+          
           function_current_instance <- .f
-          worker_1$read_output_lines()
+          
           list_current_arguments <- purrr::map(.x = .l, .f = ~.x[[..i]])
           
           formals(fun = function_current_instance) <- list_current_arguments
           
           # essential to spike the exported function with a command to read the environment back in
-          body(function_current_instance) <- as.call(purrr::prepend(as.list(body(function_current_instance)), expression(load(file = commandArgs()[2])), before = 2))
+          body(function_current_instance) <- as.call(purrr::prepend(as.list(body(function_current_instance)), str2expression(paste("load(file = \"", .temp_path, "\")", sep = "")), before = 2))
+          
+          # modify the function depending on what is specified
+          if (.result_mode %in% c("ordered", "unordered")) {
+            
+            function_to_run <- function(f) {
+              return(NULL)
+            }
+            
+            body(function_to_run) <- as.call(purrr::prepend(as.list(body(function_to_run)), str2expression(paste("saveRDS(object = f(), file = \"", paste(.temp_dir, "/", .job_name, "_chunk_", ..i, ".rds\")", sep = ""), sep = "")), before = 2))
+            
+          } else {
+            function_to_run <- function_current_instance
+          }
           
           assign(
-            x = paste("worker_", ..i, sep = ""), 
+            x = paste("chunk_", ..i, sep = ""), 
             value = callr::r_bg(
-              cmdargs	= .temp_path,
-              func = function_current_instance
+              cmdargs	= c(.temp_path, ..i),
+              args = list("f" = function_current_instance),
+              func = function_to_run
             )
           )
           
-          list_workers <- purrr::splice(list_workers, get(paste("worker_", ..i, sep = "")))
-          names(list_workers)[length(list_workers)] <- paste("worker_", ..i, sep = "")
+          list_workers <- purrr::splice(list_workers, get(paste("chunk_", ..i, sep = "")))
+          names(list_workers)[length(list_workers)] <- paste("chunk_", ..i, sep = "")
           
         }
         
       }
       
-      # an actually useful progress bar although rudimentary
-      cat(paste("\rPercent map completion: ", current_map_index, "/", map_length, " (", round(x = 100*current_map_index/map_length, digits = 1), "%)", sep = ""))
-      
-      Sys.sleep(1)
-      
-    } else if (current_map_index == map_length) {
-      
-      if (length(which(vector_logical_indices_workers_completed_reported)) == map_length) {
-        break()
+      # pass completion data to the splicer if it's being used
+      if (.result_mode %in% c("ordered", "unordered")) {
+        writeLines(text = names(vector_logical_indices_workers_completed_reported) %>% gsub(pattern = "chunk_", replacement = ""), con = paste(.temp_dir, "/", .job_name, "_chunkstatus.txt", sep = ""))
+        # try(serialize(object = which(vector_logical_indices_workers_completed_reported), connection = socketConnection(host = "localhost", port = 7019, server = FALSE, blocking = TRUE)), silent = TRUE)
       }
+      
+      # an actually useful progress bar although rudimentary
+      try(cat(paste("\r[", date(), "] Percent map completion: ", length(which(vector_logical_indices_workers_completed_reported)), "/", current_map_index, "/", map_length, " (", round(x = 100*current_map_index/map_length, digits = 1), "%); ", readLines(con = paste(.temp_dir, "/", .job_name, "_splicestatus.txt", sep = "")), sep = "")), silent = TRUE)
       
     }
     
+    Sys.sleep(1)
+    
   }
   
-  if (any(unlist(purrr::map(.x = list_workers, .f = ~.x$get_exit_status())) != 0)) {
-    purrr::map(.x = list_workers, .f = ~.x$signal(9))
-    stop(print(paste("Exit status failure received on workers:", paste(names(list_workers)[which(unlist(purrr::map(.x = list_workers, .f = ~.x$get_exit_status())) != 0)], collapse = ", "))))
+  # after the while loop is done, deal with splicing and socket transfer if we want the object returned immediately
+  if (.result_mode %in% c("ordered", "unordered")) {
+    
+    # final write to chunkstatus - boundary condition.
+    writeLines(text = as.character(which(vector_logical_indices_workers_completed_reported)), con = paste(.temp_dir, "/", .job_name, "_chunkstatus.txt", sep = ""))
+    
+    splice_status <- "NULL"
+    
+    while(splice_status != "ready_to_send_splice"){
+      
+      splice_status <- readLines(con = paste(.temp_dir, "/", .job_name, "_splicestatus.txt", sep = ""))
+      
+      if (length(splice_status) == 0) {
+        splice_status <- "NULL"
+      }
+      
+      cat(paste("\r", splice_status, sep = ""))
+      
+    }
+    
+    # start communicating with splicer to initiate socket transfer
+    if (readLines(con = paste(.temp_dir, "/", .job_name, "_splicestatus.txt", sep = "")) == "ready_to_send_splice") {
+      # give signal to splicer that we're ready to receive
+      writeLines(text = "receiving_splice", con = paste(.temp_dir, "/", .job_name, "_chunkstatus.txt", sep = ""))
+      
+      list_return <- unserialize(connection = socketConnection(host = "localhost", port = 7020, server = TRUE, blocking = TRUE))
+    }
+    
+  } else {
+    list_return <- NULL
   }
   
-  rm(list = ls(pattern = "worker_"))
+  rm(list = ls(pattern = "chunk_"))
+  rm(list = "splicer")
   rm(list_workers)
+  
+  return(list_return)
   
   cat("\n")
   
@@ -919,6 +1117,79 @@ plot_tSNE_for_timepoint_and_replicate_plotly <- function(table_matrix, timepoint
   # ggsave(plot = ggplot_plot, filename = paste(save_dir, "/", save_name, ".svg", sep = ""), device = "svg", dpi = 600, width = width, height = height, units = "cm")
   
   write.table(x = tibble_centroid_locations, file = paste(save_dir, "/", save_name, "_cluster_legend.txt", sep = ""), sep = "\t", quote = FALSE, row.names = FALSE, col.names = TRUE)
+  
+}
+
+plot_PCA_for_sample_and_replicate <- function(matrixtable, timepoint_order = NULL, replicate_order = NULL, plot_shapes = TRUE, text_labels = FALSE, point_or_label_size = 2, legend_position = "right", PCA_depths_y = NULL, PCA_depths_x = NULL, save_dir = NULL, save_name = NULL, graph_title = NULL, width = 10, height = 10) {
+  
+  # DEBUG ###
+  # matrixtable <- wide_tibble_matrix_processed_sorted_tibbles %>% as.data.frame
+  # save_dir <- R_processing_results_dir
+  # save_name <- "total_RNA"  # 
+  # graph_title <- "Total RNA"  # 
+  # timepoint_order <- long_tibble_processed_sorted_tibbles$sample_name %>% unique
+  # replicate_order <- c("r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8")
+  # width = 10
+  # height = 10
+  # PCA_depths_y = c(2, 3, 4)
+  # PCA_depths_x = c(1, 2, 3)
+  # text_labels <- FALSE
+  # point_or_label_size <- 4
+  ###########
+  
+  PCA_result <- prcomp(matrixtable)
+  
+  ## measure PC variance #
+  PCA_stdev <- tibble("PC" = 1:(PCA_result[["sdev"]] %>% length), "stdev" = PCA_result[["sdev"]])
+  
+  PCA_variance <- tibble(PC = PCA_stdev$PC, variance = PCA_stdev$stdev ^ 2)
+  PCA_variance <- add_column(PCA_variance, variance_explained = PCA_variance$variance/sum(PCA_variance$variance) * 100)
+  
+  ggplot(PCA_variance) + 
+    geom_col(aes(x = PC, y = variance_explained, fill = PC)) +
+    scale_fill_gradientn(colours = heat.colors(n = (PCA_result[["sdev"]] %>% length))) +
+    ggtitle(paste("PCA variance distribution\n", graph_title, sep = "")) +
+    guides(size = FALSE) + 
+    xlab("PC") +
+    ylab("Variance explained (%)") +
+    theme_bw() +
+    theme(text = element_text(family = "Helvetica")) +
+    ggsave(filename = paste(save_dir, "PCA_barplot_stdevs_", save_name, ".pdf", sep = ""), device = "pdf", dpi = 600, width = 45, height = 25, units = "cm") +
+    ggsave(filename = paste(save_dir, "PCA_barplot_stdevs_", save_name, ".svg", sep = ""), device = "svg", dpi = 600, width = 45, height = 25, units = "cm")
+  
+  ## measure PC loadings #
+  ## column names of the matrix need to be split by a "|", like this: timepoint|replicatenumber
+  PCA_loadings <- PCA_result[["rotation"]] %>% as_tibble(rownames = "sample")
+  PCA_loadings <- add_column(PCA_loadings, "timepoint" = gsub(x = PCA_loadings$sample, pattern = "(.*)\\|(.*)", replacement = "\\1") %>% factor(x = ., levels = timepoint_order), .after = "sample")
+  PCA_loadings <- add_column(PCA_loadings, "replicatenumber" = gsub(x = PCA_loadings$sample, pattern = "(.*)\\|(.*)", replacement = "\\2") %>% factor(x = ., levels = replicate_order), .after = "sample")
+  PCA_loadings <- add_column(PCA_loadings, 
+                             "condition_names" = gsub(x = PCA_loadings$sample, pattern = "(.*)\\|(.*)", replacement = "\\1"),
+                             "replicate_names" = gsub(x = PCA_loadings$sample, pattern = "(.*)\\|(.*)", replacement = "\\2"), 
+                             .after = "sample")
+  # append cluster number according to the order of timepoints specified by the user
+  PCA_loadings <- dplyr::left_join(PCA_loadings, tibble("condition_names" = levels(PCA_loadings$timepoint), "cluster_number" = 1:length(levels(PCA_loadings$timepoint))), by = "condition_names") %>% 
+    dplyr::relocate(cluster_number, .after = "sample")
+  
+  # plot PCA for multiple depths all in one go.
+  purrr::map2(.x = PCA_depths_x, .y = PCA_depths_y, .f = function(.x, .y) {
+    
+    pc_x <- .x
+    pc_y <- .y
+    
+    ggplot(PCA_loadings) + 
+      (if (text_labels == FALSE) {geom_point(aes(x = !!(paste("PC", pc_x, sep = "") %>% as.name), y = !!(paste("PC", pc_y, sep = "") %>% as.name), shape = replicatenumber, color = timepoint), size = point_or_label_size)} else if (text_labels == TRUE) {geom_text(aes(x = !!(paste("PC", pc_x, sep = "") %>% as.name), y = !!(paste("PC", pc_y, sep = "") %>% as.name), label = PCA_loadings$cluster_number, color = timepoint), size = point_or_label_size, position = position_dodge(width = 4))}) +
+      scale_color_brewer(name = "Timepoint", palette = "Spectral", breaks = timepoint_order, limits = timepoint_order) +
+      scale_shape_manual(name = "Replicate", values = 1:length(replicate_order)) +
+      ggtitle(paste("PCA loadings\n", graph_title, sep = "")) +
+      guides(size = FALSE) + 
+      xlab(paste("PC", pc_x, " (", PCA_variance[pc_x, "variance_explained"] %>% signif(3), "%)", sep = "")) +
+      ylab(paste("PC", pc_y, " (", PCA_variance[pc_y, "variance_explained"] %>% signif(3), "%)", sep = "")) +
+      theme_bw() +
+      theme(text = element_text(family = "Helvetica"), legend.position = legend_position) +
+      ggsave(filename = paste(save_dir, "PCA_loadings_", save_name, "_PC", pc_y, "_vs_PC_", pc_x, ".pdf", sep = ""), device = "pdf", dpi = 600, width = width, height = height, units = "cm") +
+      ggsave(filename = paste(save_dir, "PCA_loadings_", save_name, "_PC", pc_y, "_vs_PC_", pc_x, ".svg", sep = ""), device = "svg", dpi = 600, width = width, height = height, units = "cm")
+    
+  } )
   
 }
 
