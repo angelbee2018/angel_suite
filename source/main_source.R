@@ -6,6 +6,9 @@
 ## global environment automatically exported via temp file
 ## three personalities are permitted using the option .result_mode: 1. save - do not return result, just save to disk; 2. ordered - return result but in order (at each tick, check if we have consecutive saved files ready before splicing them into a single list); 3. unordered - return list elements as they arrive
 
+# test_tempfile <- tempfile()
+# test_tempdir <- tempdir()
+# 
 # test <- round_robin_pmap_callr(
 #   .l = list(
 #     "b1" = a1 %>% purrr::array_tree() %>% head,
@@ -13,31 +16,31 @@
 #   ),
 #   .num_workers = 4,
 #   .env_flag = "user",
-#   .re_export = FALSE,
-#   .temp_path = paste(tempdir, output_name, "_list_3FT_result_temp_L1x", a4, ".RData", sep = ""),
+#   .re_export = TRUE,
+#   .temp_path = paste(tempdir, "/tempdata.rdata", sep = ""),
 #   .temp_dir = tempdir,
-#   .objects = c(ls() %>% .[! . %in% c("list_recon_gtf_sectored", "list_recon_gtf_sectored0", "list_recon_gtf_subset_by_chr", "tibble_recon_gtf", "tibble_junction_table")], "a1", "a2", "a3", "a4", "reference_genome_fasta_chr_temp"),
+#   .objects = c(),
 #   .status_messages_dir = paste(tempdir, sep = ""),
-#   .job_name = paste("list_3FT_result_L1x", a4, sep = ""),
+#   .job_name = "test",
 #   .result_mode = "unordered",
-#   .f = function(b1, b2) {return(list(LETTERS[b2]))}
+#   .f = function(b1, b2) {Sys.sleep(0); return(list(LETTERS[b2]))})
 
-round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, .temp_dir = NULL, .re_export = FALSE, .env_flag = "global", .objects, .status_messages_dir, .job_name, .result_mode = "save", ...) {
+round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, .temp_dir = NULL, .re_export = FALSE, .env_flag = "global", .objects, .status_messages_dir, .job_name, .result_mode = "save", .keep_intermediate_files = FALSE, ...) {
   
   # DEBUG ###
   # .l = list(
-  #   "b1" = a1 %>% purrr::array_tree(),
-  #   "b2" = 1:length(a1 %>% purrr::array_tree())
+  #   "b1" = 1:20
   # )
-  # .num_workers = ncores_level_1
+  # .num_workers = 4
   # .env_flag = "user"
-  # .re_export = FALSE
-  # .temp_path = paste(tempdir, output_name, "_list_3FT_result_temp_L1x", a4, ".RData", sep = "")
+  # .re_export = TRUE
+  # .temp_path = paste(tempdir, "/tempdata.rdata", sep = "")
   # .temp_dir = tempdir
-  # .objects = c(ls() %>% .[! . %in% c("list_recon_gtf_sectored", "list_recon_gtf_sectored0", "list_recon_gtf_subset_by_chr", "tibble_recon_gtf", "tibble_junction_table")], "a1", "a2", "a3", "a4", "reference_genome_fasta_chr_temp")
+  # .objects = c()
   # .status_messages_dir = paste(tempdir, sep = "")
-  # .job_name = paste("list_3FT_result_L1x", a4, sep = "")
+  # .job_name = "test"
   # .result_mode = "unordered"
+  # .f = function(b1) {Sys.sleep(120); return(list(LETTERS[b1]))}
   ###########
   
   system("ulimit -n 65536")
@@ -53,9 +56,9 @@ round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, 
     message("Exporting object data file")
     
     if (.env_flag == "global") {
-      save.image(file = .temp_path, ...)
+      save.image(file = .temp_path)
     } else if (.env_flag == "user") {
-      save(list = .objects, file = .temp_path, ...)
+      save(list = .objects, file = .temp_path)
     }
     
   }
@@ -113,116 +116,13 @@ round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, 
     
   }
   
-  # SPLICER
-  ## splice lists as we go, depending if we want consecutive or not
-  if (.result_mode %in% c("ordered", "unordered")) {
-    
-    system(command = paste("touch ", paste(.temp_dir, "/", .job_name, "_chunkstatus.txt", sep = ""), sep = ""))
-    
-    assign(
-      x = "splicer", 
-      value = callr::r_bg(
-        cmdargs	= "splicer",
-        args = list("map_length" = map_length, ".temp_dir" = .temp_dir, ".job_name" = .job_name, ".result_mode" = .result_mode),
-        stdout = paste(.temp_dir, "/", .job_name, "_splicestatus_stdout.txt", sep = ""),
-        stderr = paste(.temp_dir, "/", .job_name, "_splicestatus_stderr.txt", sep = ""),
-        func = function(map_length, .temp_dir, .job_name, .result_mode) {
-          
-          library(tidyverse)
-          
-          list_result <- list()
-          
-          current_chunks_spliced <- numeric()
-          
-          while (length(list_result) < map_length) {
-            
-            # read the vector of completed chunks
-            vector_completed_chunks <- type.convert(readLines(con = paste(.temp_dir, "/", .job_name, "_chunkstatus.txt", sep = "")), as.is = TRUE)
-            
-            # unserialize(socketConnection(host = "localhost", port = 7019, server = TRUE, blocking = TRUE))
-            vector_chunks_to_be_spliced <- setdiff(vector_completed_chunks, current_chunks_spliced) %>% sort
-            
-            print("vector_completed_chunks")
-            print(vector_completed_chunks)
-            
-            print("current_chunks_spliced")
-            print(current_chunks_spliced)
-            
-            print("vector_chunks_to_be_spliced")
-            print(vector_chunks_to_be_spliced)
-            
-            # consider order
-            if (length(vector_chunks_to_be_spliced) > 0) {
-              
-              # if order is important, simply drop non-consecutive terms from the vector_chunks_to_be_spliced. they will reappear later when the terms in the middle are available.
-              if (.result_mode == "ordered") {
-                
-                tibble_diffs <- tibble("n" = c(length(list_result), vector_chunks_to_be_spliced) %>% sort, "n_minus_1" = c(vector_chunks_to_be_spliced %>% sort, NA)) %>% dplyr::mutate("diff" = `n_minus_1` - `n`)
-                index_last_consecutive <- which(tibble_diffs$diff > 1) %>% .[1]
-                
-                vector_chunks_to_be_spliced <- tibble_diffs$n %>% .[1:index_last_consecutive]
-                
-                vector_chunks_to_be_spliced <- vector_chunks_to_be_spliced[-1]
-                
-              }
-              
-            }
-            
-            # splice in terms
-            if (length(vector_chunks_to_be_spliced) > 0) {
-              
-              list_new_chunks <- purrr::map(
-                .x = vector_chunks_to_be_spliced,
-                .f = function(a1) {
-                  
-                  chunk <- readRDS(file = paste(.temp_dir, "/", .job_name, "_chunk_", a1, ".rds", sep = ""))
-                  
-                  return(chunk)
-                  
-                } )
-              
-              list_result <- purrr::splice(list_result, list_new_chunks)
-              
-              current_chunks_spliced <- c(current_chunks_spliced, vector_chunks_to_be_spliced) %>% sort
-              
-            }
-            
-            print(x = paste("[", date(), "] Splice progress: ", length(list_result), "/", map_length, sep = ""))
-            writeLines(text = paste("[", date(), "] Splice progress: ", length(list_result), "/", map_length, sep = ""), con = paste(.temp_dir, "/", .job_name, "_splicestatus.txt", sep = ""))
-            
-            Sys.sleep(1)
-            
-          }
-          
-          # start communicating with core process to initiate socket transfer
-          cat("Splice progress: transferring spliced list...")
-          
-          # saveRDS(object = list_result, file = paste(.temp_dir, "/", .job_name, "_spliced.rds", sep = ""))
-          
-          writeLines(text = "ready_to_send_splice", con = paste(.temp_dir, "/", .job_name, "_splicestatus.txt", sep = ""))
-          
-          # wait on host process to be ready
-          while (readLines(con = paste(.temp_dir, "/", .job_name, "_chunkstatus.txt", sep = "")) %>% grepl(pattern = "receiving_splice") %>% any == FALSE) {
-            Sys.sleep(1)
-          }
-          
-          Sys.sleep(2)
-          
-          serialize(object = list_result, connection = socketConnection(host = "localhost", port = 7020, server = FALSE, blocking = TRUE), xdr = FALSE)
-          
-          return(NULL)
-          
-        }
-      )
-    )
-    
-  }
-  
   # keep track of iteration progress
   current_map_index <- .num_workers
   
   # keep running while there are no errors
   ## NULL values dont count as nonzero - this is good for us
+  flag_completion <- FALSE
+  
   while(all(unlist(purrr::map(.x = list_workers, .f = ~.x$get_exit_status())) == 0)) {
     
     vector_logical_indices_workers_completed_reported <- unlist(purrr::map(.x = list_workers, .f = ~.x$get_exit_status())) == 0
@@ -257,20 +157,16 @@ round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, 
         
       } )
     
+    # check for errors that don't show up in process exit status
     if (any(unlist(list_logical_any_error)) == TRUE) {
       purrr::map(.x = list_workers, .f = ~.x$signal(9))
       stop(print(paste("Stop error received on chunks:", paste(names(list_workers)[which(unlist(list_logical_any_error))], collapse = ", "))))
     }
     
     # round robin action until the list is fully mapped
-    
-    # if any error, stop all
-    if (any(unlist(purrr::map(.x = list_workers, .f = ~.x$get_exit_status())) != 0)) {
-      purrr::map(.x = list_workers, .f = ~.x$signal(9))
-      stop(print(paste("Exit status failure received on chunks:", paste(names(list_workers)[which(unlist(purrr::map(.x = list_workers, .f = ~.x$get_exit_status())) != 0)], collapse = ", "))))
-    } else if (current_map_index == map_length & length(which(vector_logical_indices_workers_completed_reported)) == map_length) {
+    if (flag_completion == TRUE) {
       break()
-    } else if (current_map_index <= map_length) {
+    } else if (flag_completion == FALSE) {
       
       number_of_processes_alive <- length(which(unlist(purrr::map(.x = list_workers, .f = ~.x$is_alive()))))
       
@@ -325,14 +221,74 @@ round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, 
         
       }
       
-      # pass completion data to the splicer if it's being used
+      # SPLICER
+      
       if (.result_mode %in% c("ordered", "unordered")) {
-        writeLines(text = names(vector_logical_indices_workers_completed_reported) %>% gsub(pattern = "chunk_", replacement = ""), con = paste(.temp_dir, "/", .job_name, "_chunkstatus.txt", sep = ""))
-        # try(serialize(object = which(vector_logical_indices_workers_completed_reported), connection = socketConnection(host = "localhost", port = 7019, server = FALSE, blocking = TRUE)), silent = TRUE)
-      }
+      
+        # initialise list_result if it hasnt already been created
+        if (ls(pattern = "^list_result$") %>% length == 0) {
+          list_result <- list()
+          
+          current_chunks_spliced <- numeric()
+        }
+        
+        if (length(list_result) < map_length) {
+          
+          vector_completed_chunks <- names(vector_logical_indices_workers_completed_reported) %>% gsub(pattern = "chunk_", replacement = "")
+          
+          vector_chunks_to_be_spliced <- setdiff(vector_completed_chunks, current_chunks_spliced) %>% sort
+          
+          # consider order
+          if (length(vector_chunks_to_be_spliced) > 0) {
+            
+            # if order is important, simply drop non-consecutive terms from the vector_chunks_to_be_spliced. they will reappear later when the terms in the middle are available.
+            if (.result_mode == "ordered") {
+              
+              tibble_diffs <- tibble("n" = c(length(list_result), vector_chunks_to_be_spliced) %>% sort, "n_minus_1" = c(vector_chunks_to_be_spliced %>% sort, NA)) %>% dplyr::mutate("diff" = `n_minus_1` - `n`)
+              index_last_consecutive <- which(tibble_diffs$diff > 1) %>% .[1]
+              
+              vector_chunks_to_be_spliced <- tibble_diffs$n %>% .[1:index_last_consecutive]
+              
+              vector_chunks_to_be_spliced <- vector_chunks_to_be_spliced[-1]
+              
+            }
+            
+          }
+          
+          # splice in terms
+          if (length(vector_chunks_to_be_spliced) > 0) {
+            
+            list_new_chunks <- purrr::map(
+              .x = vector_chunks_to_be_spliced,
+              .f = function(a1) {
+                
+                chunk <- readRDS(file = paste(.temp_dir, "/", .job_name, "_chunk_", a1, ".rds", sep = ""))
+                
+                return(chunk)
+                
+              } )
+            
+            list_result <- purrr::splice(list_result, list_new_chunks)
+            
+            current_chunks_spliced <- c(current_chunks_spliced, vector_chunks_to_be_spliced) %>% sort
+            
+          }
+          
+          Sys.sleep(1)
+          
+        }
+        
+      } # END SPLICER ###
       
       # an actually useful progress bar although rudimentary
-      try(cat(paste("\r[", date(), "] Percent map completion: ", length(which(vector_logical_indices_workers_completed_reported)), "/", current_map_index, "/", map_length, " (", round(x = 100*current_map_index/map_length, digits = 1), "%); ", readLines(con = paste(.temp_dir, "/", .job_name, "_splicestatus.txt", sep = "")), sep = "")), silent = TRUE)
+      try(cat(paste("\r[", date(), "] Percent map completion: ", length(which(vector_logical_indices_workers_completed_reported)), "/", current_map_index, "/", map_length, " (", round(x = 100*current_map_index/map_length, digits = 1), "%); Splice progress: ", length(list_result), "/", map_length, sep = "")), silent = TRUE)
+      
+      # deal with completion flag
+      if (.result_mode %in% c("ordered", "unordered")) {
+        flag_completion <- length(list_result) == map_length
+      } else {
+        flag_completion <- length(which(vector_logical_indices_workers_completed_reported)) == map_length
+      }
       
     }
     
@@ -340,43 +296,25 @@ round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, 
     
   }
   
+  # if any error, stop all
+  if (any(unlist(purrr::map(.x = list_workers, .f = ~.x$get_exit_status())) != 0)) {
+    purrr::map(.x = list_workers, .f = ~.x$signal(9))
+    stop(print(paste("Exit status failure received on chunks:", paste(names(list_workers)[which(unlist(purrr::map(.x = list_workers, .f = ~.x$get_exit_status())) != 0)], collapse = ", "))))
+  }
+  
   # after the while loop is done, deal with splicing and socket transfer if we want the object returned immediately
   if (.result_mode %in% c("ordered", "unordered")) {
-    
-    # final write to chunkstatus - boundary condition.
-    writeLines(text = as.character(which(vector_logical_indices_workers_completed_reported)), con = paste(.temp_dir, "/", .job_name, "_chunkstatus.txt", sep = ""))
-    
-    splice_status <- "NULL"
-    
-    while(splice_status != "ready_to_send_splice"){
-      
-      splice_status <- readLines(con = paste(.temp_dir, "/", .job_name, "_splicestatus.txt", sep = ""))
-      
-      if (length(splice_status) == 0) {
-        splice_status <- "NULL"
-      }
-      
-      cat(paste("\r", splice_status, sep = ""))
-      
-    }
-    
-    # start communicating with splicer to initiate socket transfer
-    if (readLines(con = paste(.temp_dir, "/", .job_name, "_splicestatus.txt", sep = "")) == "ready_to_send_splice") {
-      # give signal to splicer that we're ready to receive
-      writeLines(text = "receiving_splice", con = paste(.temp_dir, "/", .job_name, "_chunkstatus.txt", sep = ""))
-      
-      list_return <- unserialize(connection = socketConnection(host = "localhost", port = 7020, server = TRUE, blocking = TRUE))
-    }
-    
+    return(list_result)
   } else {
-    list_return <- NULL
+    return(NULL)
+  }
+  
+  if (.keep_intermediate_files == FALSE) {
+    file.remove(list.files(path = .temp_dir, pattern = paste(.job_name, "_chunk_.*.rds", sep = ""), full.names = TRUE ))
   }
   
   rm(list = ls(pattern = "chunk_"))
-  rm(list = "splicer")
   rm(list_workers)
-  
-  return(list_return)
   
   cat("\n")
   
