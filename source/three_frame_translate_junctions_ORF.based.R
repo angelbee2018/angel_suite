@@ -19,9 +19,7 @@ cat("number of arguments specified:", length(args))
 
 library(seqinr)
 library(tidyverse)
-library(purrr)
 library(furrr)
-library(dplyr)
 library(rtracklayer)
 library(data.table)
 library(optparse)
@@ -199,7 +197,7 @@ if (grepl(x = ncores, pattern = "x") == FALSE) {
             tweak(multicore, workers = ncores_level_3, gc = TRUE))
   )
   
-  cat((ncores %>% strsplit(split = "x") %>% unlist %>% .[1] %>% type.convert(as.is = TRUE)) * (ncores %>% strsplit(split = "x") %>% unlist %>% .[2] %>% type.convert(as.is = TRUE)), "cores will be used in total\n")
+  cat((ncores %>% strsplit(split = "x") %>% unlist %>% .[1] %>% type.convert(as.is = TRUE)) * (ncores %>% strsplit(split = "x") %>% unlist %>% .[2] %>% type.convert(as.is = TRUE)) * (ncores %>% strsplit(split = "x") %>% unlist %>% .[3] %>% type.convert(as.is = TRUE)), "cores will be used in total\n")
   cat("first layer:", ncores_level_1, "cores\n")
   cat("second layer:", ncores_level_2, "cores\n")
   cat("third layer:", ncores_level_3, "cores\n")
@@ -493,7 +491,7 @@ vector_ref_genome_fasta_path <- paste(vector_ref_genome_paths_by_chr[vector_ref_
 plan(list(tweak(multicore, workers = ncores_level_1),
           tweak(multicore, workers = ncores_level_2)))
 
-number_of_entries_per_chunk <- 8
+number_of_entries_per_chunk <- 200
 
 # further split each chromosome list into smaller sectors to reduce parallel overhead. we do this by chunking across the genome.
 list_junction_table_sectored0 <- furrr::future_map(

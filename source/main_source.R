@@ -98,18 +98,26 @@ round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, 
       
       body(function_to_run) <- as.call(purrr::prepend(as.list(body(function_to_run)), str2expression(paste("saveRDS(object = f(), file = \"", paste(.temp_dir, "/", .job_name, "_chunk_", ..i, ".rds\")", sep = ""), sep = "")), before = 2))
       
+      assign(
+        x = paste("chunk_", ..i, sep = ""), 
+        value = callr::r_bg(
+          cmdargs	= c(.temp_path, ..i),
+          args = list("f" = function_current_instance),
+          func = function_to_run
+        )
+      )
+      
     } else {
       function_to_run <- function_current_instance
-    }
-    
-    assign(
-      x = paste("chunk_", ..i, sep = ""), 
-      value = callr::r_bg(
-        cmdargs	= c(.temp_path, ..i),
-        args = list("f" = function_current_instance),
-        func = function_to_run
+      
+      assign(
+        x = paste("chunk_", ..i, sep = ""), 
+        value = callr::r_bg(
+          cmdargs	= c(.temp_path, ..i),
+          func = function_to_run
+        )
       )
-    )
+    }
     
     list_workers <- purrr::splice(list_workers, get(paste("chunk_", ..i, sep = "")))
     names(list_workers)[length(list_workers)] <- paste("chunk_", ..i, sep = "")
@@ -201,18 +209,26 @@ round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, 
             
             body(function_to_run) <- as.call(purrr::prepend(as.list(body(function_to_run)), str2expression(paste("saveRDS(object = f(), file = \"", paste(.temp_dir, "/", .job_name, "_chunk_", ..i, ".rds\")", sep = ""), sep = "")), before = 2))
             
+            assign(
+              x = paste("chunk_", ..i, sep = ""), 
+              value = callr::r_bg(
+                cmdargs	= c(.temp_path, ..i),
+                args = list("f" = function_current_instance),
+                func = function_to_run
+              )
+            )
+            
           } else {
             function_to_run <- function_current_instance
-          }
-          
-          assign(
-            x = paste("chunk_", ..i, sep = ""), 
-            value = callr::r_bg(
-              cmdargs	= c(.temp_path, ..i),
-              args = list("f" = function_current_instance),
-              func = function_to_run
+            
+            assign(
+              x = paste("chunk_", ..i, sep = ""), 
+              value = callr::r_bg(
+                cmdargs	= c(.temp_path, ..i),
+                func = function_to_run
+              )
             )
-          )
+          }
           
           list_workers <- purrr::splice(list_workers, get(paste("chunk_", ..i, sep = "")))
           names(list_workers)[length(list_workers)] <- paste("chunk_", ..i, sep = "")
@@ -229,14 +245,14 @@ round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, 
         if (ls(pattern = "^list_result$") %>% length == 0) {
           list_result <- list()
           
-          current_chunks_spliced <- numeric()
+          vector_current_chunks_spliced <- 0
         }
         
         if (length(list_result) < map_length) {
           
-          vector_completed_chunks <- names(vector_logical_indices_workers_completed_reported) %>% gsub(pattern = "chunk_", replacement = "")
+          vector_completed_chunks <- names(vector_logical_indices_workers_completed_reported) %>% gsub(pattern = "chunk_", replacement = "") %>% type.convert(as.is = TRUE)
           
-          vector_chunks_to_be_spliced <- setdiff(vector_completed_chunks, current_chunks_spliced) %>% sort
+          vector_chunks_to_be_spliced <- setdiff(vector_completed_chunks, vector_current_chunks_spliced) %>% sort
           
           # consider order
           if (length(vector_chunks_to_be_spliced) > 0) {
@@ -244,12 +260,29 @@ round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, 
             # if order is important, simply drop non-consecutive terms from the vector_chunks_to_be_spliced. they will reappear later when the terms in the middle are available.
             if (.result_mode == "ordered") {
               
-              tibble_diffs <- tibble("n" = c(length(list_result), vector_chunks_to_be_spliced) %>% sort, "n_minus_1" = c(vector_chunks_to_be_spliced %>% sort, NA)) %>% dplyr::mutate("diff" = `n_minus_1` - `n`)
-              index_last_consecutive <- which(tibble_diffs$diff > 1) %>% .[1]
+              global_vector_current_chunks_spliced <<- vector_current_chunks_spliced
+              print("vector_current_chunks_spliced")
+              print(vector_current_chunks_spliced)
               
-              vector_chunks_to_be_spliced <- tibble_diffs$n %>% .[1:index_last_consecutive]
+              global_vector_completed_chunks <<- vector_completed_chunks
+              print("vector_completed_chunks")
+              print(vector_completed_chunks)
+              global_vector_chunks_to_be_spliced <<- vector_chunks_to_be_spliced
+              print("vector_chunks_to_be_spliced")
+              print(vector_chunks_to_be_spliced)
               
-              vector_chunks_to_be_spliced <- vector_chunks_to_be_spliced[-1]
+              global_list_result <<- list_result
+              
+              tibble_diffs <- tibble("n" = c(vector_current_chunks_spliced, vector_chunks_to_be_spliced) %>% sort, "n_minus_1" = c(c(vector_current_chunks_spliced, vector_chunks_to_be_spliced) %>% sort %>% .[2:length(.)], NA)) %>% 
+                dplyr::mutate("diff" = `n_minus_1` - `n`)
+              
+              index_last_consecutive <- intersect(which(tibble_diffs$diff == 1), c(which(tibble_diffs$diff > 1) - 1, nrow(tibble_diffs) - 1)) %>% .[1]
+              
+              if (length(index_last_consecutive) > 0) {
+                vector_chunks_to_be_spliced <- intersect(vector_chunks_to_be_spliced, tibble_diffs$n_minus_1 %>% .[1:index_last_consecutive])
+              } else {
+                vector_chunks_to_be_spliced <- integer(0)
+              }
               
             }
             
@@ -270,7 +303,7 @@ round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, 
             
             list_result <- purrr::splice(list_result, list_new_chunks)
             
-            current_chunks_spliced <- c(current_chunks_spliced, vector_chunks_to_be_spliced) %>% sort
+            vector_current_chunks_spliced <- c(vector_current_chunks_spliced, vector_chunks_to_be_spliced) %>% sort
             
           }
           
@@ -281,7 +314,11 @@ round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, 
       } # END SPLICER ###
       
       # an actually useful progress bar although rudimentary
-      try(cat(paste("\r[", date(), "] Percent map completion: ", length(which(vector_logical_indices_workers_completed_reported)), "/", current_map_index, "/", map_length, " (", round(x = 100*current_map_index/map_length, digits = 1), "%); Splice progress: ", length(list_result), "/", map_length, sep = "")), silent = TRUE)
+      if (ls(pattern = "^list_result$") %>% length == 0) {
+        cat(paste("\r[", date(), "] Percent map completion: ", length(which(vector_logical_indices_workers_completed_reported)), "/", current_map_index, "/", map_length, " (", round(x = 100*length(which(vector_logical_indices_workers_completed_reported))/map_length, digits = 1), "%)", sep = ""))
+      } else {
+        cat(paste("\r[", date(), "] Percent map completion: ", length(which(vector_logical_indices_workers_completed_reported)), "/", current_map_index, "/", map_length, " (", round(x = 100*length(which(vector_logical_indices_workers_completed_reported))/map_length, digits = 1), "%); Splice progress: ", length(list_result), "/", map_length, sep = ""))
+      }
       
       # deal with completion flag
       if (.result_mode %in% c("ordered", "unordered")) {
