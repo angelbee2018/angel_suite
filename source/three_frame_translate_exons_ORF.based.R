@@ -79,14 +79,14 @@ if ((list(input_args$reconstructed_transcript_gtf_path, input_args$reference_gen
 
 # DEBUG #######
 
-exon_table_path <- "/mnt/LTS/projects/2020_RNA_atlas/results/R_processing_results_PSISigma/atlas_totalrna_psisigma_LIS_export_for_3FT.txt"
+exon_table_path <- "/mnt/LTS/projects/2020_RNA_atlas/results/R_processing_results_PSISigma/atlas_polya_psisigma_LIS_export_for_3FT.txt"
 intron_retention_string <- "IR"
-source_tag <- "atlas_totalrna_psisigma_LIS_exons_recon_ensembl"
+source_tag <- "atlas_polya_psisigma_LIS_exons_recon_ensembl"
 reference_genome_fasta_dir <- "/mnt/LTS/reference_data/hg38_ensembl_reference/raw_genome_fasta/dna_by_chr/"
 output_dir <- "/mnt/LTS/projects/2020_RNA_atlas/results/results_proteome_validation/"
-output_name <- "atlas_totalrna_psisigma_LIS_exons_recon_ensembl_3FT"
+output_name <- "atlas_polya_psisigma_LIS_exons_recon_ensembl_3FT"
 reconstructed_transcript_gtf_path <- "/mnt/LTS/reference_data/hg38_ensembl_reference/gtf/Homo_sapiens.GRCh38.98.gtf"
-reconstructed_transcript_gtf_path <- "/mnt/LTS/projects/2020_RNA_atlas/results/analysis_strawberry_totalrna/atlas_totalrna_ensembl_stringtiemerged.gtf"
+reconstructed_transcript_gtf_path <- "/mnt/LTS/projects/2020_RNA_atlas/results/analysis_strawberry_polya/atlas_polya_ensembl_stringtiemerged.gtf"
 ncores <- "92x40"
 use_start_codon <- "YES"
 chrmode <- 1
@@ -454,10 +454,10 @@ if (any(c(flag_identifier_exon_tibble, flag_chr_start_end_strand_exon_tibble) ==
 if (flag_identifier_exon_tibble == TRUE) {
   
   vector_VSR_chr <- gsub(x = tibble_alternative_exons$VSR_coords, pattern = "(.*):(\\d+)-(.*)", replacement = "\\1")
-  vector_VSR_start <- future_map2(.x = gsub(x = tibble_alternative_exons$VSR_coords, pattern = "(.*):(\\d+)-(.*)", replacement = "\\2") %>% type.convert, 
+  vector_VSR_start <- furrr::future_map2(.x = gsub(x = tibble_alternative_exons$VSR_coords, pattern = "(.*):(\\d+)-(.*)", replacement = "\\2") %>% type.convert, 
                                   .y = gsub(x = tibble_alternative_exons$VSR_coords, pattern = "(.*):(\\d+)-(.*)", replacement = "\\3") %>% type.convert, 
                                   .f = ~min(.x, .y), .progress = TRUE) %>% unlist
-  vector_VSR_end <- future_map2(.x = gsub(x = tibble_alternative_exons$VSR_coords, pattern = "(.*):(\\d+)-(.*)", replacement = "\\2") %>% type.convert, 
+  vector_VSR_end <- furrr::future_map2(.x = gsub(x = tibble_alternative_exons$VSR_coords, pattern = "(.*):(\\d+)-(.*)", replacement = "\\2") %>% type.convert, 
                                 .y = gsub(x = tibble_alternative_exons$VSR_coords, pattern = "(.*):(\\d+)-(.*)", replacement = "\\3") %>% type.convert, 
                                 .f = ~max(.x, .y), .progress = TRUE) %>% unlist
   
@@ -835,7 +835,7 @@ list_3FT_result <- round_robin_pmap_callr(
       
       # detect exon extension/skipping
       ## get vector of VSR and exon coords
-      vector_VSR_exon_coords <- b1[c("VSR_start", "VSR_end", "alternative_exon_starts", "alternative_exon_ends")] %>% unlist %>% type.convert
+      vector_VSR_exon_coords <- b1[c("VSR_start", "VSR_end", "alternative_exon_starts", "alternative_exon_ends")] %>% unlist %>% type.convert(as.is = TRUE)
       
       # since we use tolerance, we have to think of values as contiguous bands because sometimes the VSR doesn't line up exactly with the alternative exon coords
       tibble_diffs <- tibble("n" = vector_VSR_exon_coords %>% sort %>% .[2:(length(.))], "n_minus_1" = vector_VSR_exon_coords %>% sort %>% .[1:(length(.) - 1)]) %>% dplyr::mutate("diff" = `n` - `n_minus_1`)
@@ -1324,7 +1324,7 @@ list_3FT_result <- round_robin_pmap_callr(
                             "list_uORF" = list_valid_ORFs %>% purrr::map(~.x$list_uORF),
                             "list_dORF" = list_valid_ORFs %>% purrr::map(~.x$list_dORF))
       
-      tibble_3FT_info <- purrr::splice(updated_list[c("list_matched_strand", "list_start_codon_present", "list_parent_GTF_transcript_entries")], list_3FT_info) %>% tibble::as_tibble() %>% tidyr::unnest(cols = c("list_raw_three_frame_translation", "list_translation_frame_relative_effective_ES", "list_translation_frame_relative_effective_EE", "list_uORF", "list_dORF")) %>% dplyr::mutate("list_all_stranded_genome_relative_coords_of_parent_transcript" = purrr::map(.x = list_all_stranded_genome_relative_coords_of_parent_transcript, .f = ~.x %>% paste(collapse = ",")), "list_raw_three_frame_translation" = purrr::map(.x = list_raw_three_frame_translation, .f = ~.x %>% paste(collapse = "")), "list_parent_GTF_transcript_ids" = purrr::map(.x = list_parent_GTF_transcript_entries, .f = ~.x$transcript_id %>% unique %>% gtools::mixedsort() %>% paste(collapse = ","))) %>% dplyr::select(-list_parent_GTF_transcript_entries) %>% dplyr::mutate_all(unlist)
+      tibble_3FT_info <- purrr::splice(updated_list[c("list_matched_strand", "list_start_codon_present", "list_parent_GTF_transcript_entries")], list_3FT_info) %>% tibble::as_tibble() %>% tidyr::unnest(cols = c("list_raw_three_frame_translation", "list_translation_frame_relative_effective_ES", "list_translation_frame_relative_effective_EE", "list_uORF", "list_dORF")) %>% dplyr::mutate("translation_frame" = names(list_raw_three_frame_translation), "list_all_stranded_genome_relative_coords_of_parent_transcript" = purrr::map(.x = list_all_stranded_genome_relative_coords_of_parent_transcript, .f = ~.x %>% paste(collapse = ",")), "list_raw_three_frame_translation" = purrr::map(.x = list_raw_three_frame_translation, .f = ~.x %>% paste(collapse = "")), "list_parent_GTF_transcript_ids" = purrr::map(.x = list_parent_GTF_transcript_entries, .f = ~.x$transcript_id %>% unique %>% gtools::mixedsort() %>% paste(collapse = ","))) %>% dplyr::select(-list_parent_GTF_transcript_entries) %>% dplyr::mutate_all(unlist)
       
       list_non_3FT_info <- b1[c("chr", "VSR_start", "VSR_end", "alternative_exon_starts", "alternative_exon_ends", "splicemode", "gene_name", "organism", "custom_identifier")]
       list_non_3FT_info[c("alternative_exon_starts", "alternative_exon_ends")] <- purrr::map(.x = list_non_3FT_info[c("alternative_exon_starts", "alternative_exon_ends")], .f = ~.x %>% paste(collapse = ","))
@@ -1379,7 +1379,8 @@ list_3FT_result <- round_robin_pmap_callr(
 
 tibble_3FT_result <- list_3FT_result %>%
   data.table::rbindlist() %>%
-  tibble::as_tibble()
+  tibble::as_tibble() %>%
+  dplyr::mutate("translation_frame" = gsub(x = translation_frame, pattern = "translation\\_frame\\_", replacement = ""))
 
 # CREATE FASTA HEADER ###
 # finalise identifiers
@@ -1402,6 +1403,8 @@ vector_final_identifier <- purrr::map(
     }
     
   } ) %>% unlist
+
+tibble_3FT_result <- tibble_3FT_result %>% dplyr::mutate("final_identifier" = vector_final_identifier)
   
 # create FASTA header
 vector_fasta_header <- paste(source_tag, 
@@ -1451,7 +1454,7 @@ if (save_workspace_when_done == "DEBUG") {
 #   dplyr::distinct(fasta_header, virtual_peptide_sequence, .keep_all = TRUE)
 
 tibble_3FT_result <- tibble_3FT_result %>%
-  dplyr::distinct(fasta_header, virtual_peptide_sequence, .keep_all = TRUE)
+  dplyr::distinct(virtual_peptide_sequence, .keep_all = TRUE)
 
 # filter for virtual peptides less than 7 AA
 tibble_3FT_result <- tibble_3FT_result[tibble_3FT_result$virtual_peptide_sequence %>% purrr::map(~.x %>% nchar >= 7) %>% unlist %>% which, ]
@@ -1482,10 +1485,10 @@ vector_substring_or_not <- round_robin_pmap_callr(
   ),
   .num_workers = 192,
   .env_flag = "user",
-  .re_export = FALSE,
+  .re_export = TRUE,
   .temp_path = paste(output_dir, "/temp/", output_name, "_vector_substring_or_not_temp.RData", sep = ""),
   .temp_dir = paste(output_dir, "/temp/", sep = ""),
-  .objects = ls() %>% .[! . %in% c("list_recon_gtf_sectored", "list_recon_gtf_sectored0", "list_recon_gtf_subset_by_chr", "tibble_recon_gtf", "list_3FT_result", "tibble_3FT_result")],
+  .objects = ls() %>% .[! . %in% c("list_recon_gtf_sectored", "list_recon_gtf_sectored0", "list_recon_gtf_subset_by_chr", "tibble_recon_gtf", "list_3FT_result", "tibble_3FT_result", "global_list_result", "list_alternative_exons_by_chr", "list_alternative_exon_ends", "list_alternative_exon_starts", "tibble_alternative_exons", "tibble_master_alternative_exons_chr_start_end_strand")],
   .status_messages_dir = paste(output_dir, "temp/", sep = ""),
   .job_name = paste(output_name, "_vector_substring_or_not", sep = ""),
   .result_mode = "ordered",
@@ -1544,6 +1547,9 @@ tibble_3FT_result <- tibble_3FT_result %>% add_column("vector_substring_or_not" 
 
 # filter out substrings
 tibble_3FT_result_no_substring <- tibble_3FT_result %>% dplyr::filter(vector_substring_or_not == FALSE)
+
+# clean up colnames
+tibble_3FT_result_no_substring <- tibble_3FT_result_no_substring %>% dplyr::rename("strand" = "list_matched_strand")
 
 # tally up the number of valid frames we ended up with
 tibble_exons_frame_tally <- tibble_3FT_result_no_substring %>% dplyr::distinct(translation_frame, fasta_header) %>% dplyr::group_by(fasta_header) %>% dplyr::summarise("tally" = n())

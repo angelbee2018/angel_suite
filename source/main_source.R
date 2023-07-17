@@ -260,19 +260,6 @@ round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, 
             # if order is important, simply drop non-consecutive terms from the vector_chunks_to_be_spliced. they will reappear later when the terms in the middle are available.
             if (.result_mode == "ordered") {
               
-              global_vector_current_chunks_spliced <<- vector_current_chunks_spliced
-              print("vector_current_chunks_spliced")
-              print(vector_current_chunks_spliced)
-              
-              global_vector_completed_chunks <<- vector_completed_chunks
-              print("vector_completed_chunks")
-              print(vector_completed_chunks)
-              global_vector_chunks_to_be_spliced <<- vector_chunks_to_be_spliced
-              print("vector_chunks_to_be_spliced")
-              print(vector_chunks_to_be_spliced)
-              
-              global_list_result <<- list_result
-              
               tibble_diffs <- tibble("n" = c(vector_current_chunks_spliced, vector_chunks_to_be_spliced) %>% sort, "n_minus_1" = c(c(vector_current_chunks_spliced, vector_chunks_to_be_spliced) %>% sort %>% .[2:length(.)], NA)) %>% 
                 dplyr::mutate("diff" = `n_minus_1` - `n`)
               

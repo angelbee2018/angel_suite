@@ -127,14 +127,14 @@ tempdir <- input_args$tempdir
 #              "custom_identifier" = NA)
 # 
 
-junction_table_path <- "/mnt/LTS/projects/2020_RNA_atlas/results/R_processing_results_PSISigma/atlas_totalrna_psisigma_VSR_junctions_export_for_3FT.txt"
+junction_table_path <- "/mnt/LTS/projects/2020_RNA_atlas/results/R_processing_results_PSISigma/atlas_polya_psisigma_VSR_junctions_export_for_3FT.txt"
 intron_retention_string <- "IR"
-reconstructed_gtf_path <- "/mnt/LTS/projects/2020_RNA_atlas/results/analysis_strawberry_totalrna/atlas_totalrna_ensembl_stringtiemerged.gtf"
-source_tag <- "atlas_totalrna_psisigma_VSR_junctions_recon_ensembl"
+reconstructed_gtf_path <- "/mnt/LTS/projects/2020_RNA_atlas/results/analysis_strawberry_polya/atlas_polya_ensembl_stringtiemerged.gtf"
+source_tag <- "atlas_polya_psisigma_VSR_junctions_recon_ensembl"
 reference_genome_fasta_dir <- "/mnt/LTS/reference_data/hg38_ensembl_reference/raw_genome_fasta/dna_by_chr/"
 upstream_window_size <- 50
 downstream_window_size <- 50
-output_name <- "atlas_totalrna_psisigma_VSR_junctions_recon_ensembl_3FT"
+output_name <- "atlas_polya_psisigma_VSR_junctions_recon_ensembl_3FT"
 output_dir <- "/mnt/LTS/projects/2020_RNA_atlas/results/results_proteome_validation/"
 ncores <- "96x10x16"
 chrmode <- 1
