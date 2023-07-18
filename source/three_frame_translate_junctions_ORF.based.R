@@ -140,7 +140,7 @@ ncores <- "96x10x16"
 chrmode <- 1
 nonchrname <- NULL
 save_workspace_when_done <- "NO"
-tempdir <- "/mnt/scratch/temp/"
+tempdir <- "/mnt/LTS/projects/2020_RNA_atlas/results/results_proteome_validation/temp/"
 
 ##################################
 
@@ -997,9 +997,61 @@ tibble_three_frame_translate_result2 <- tibble_three_frame_translate_result1[!(d
 plan(list(tweak(multicore, workers = ncores_level_1),
           tweak(multicore, workers = 1)))
 
+vector_virtual_peptide_sequence <- tibble_three_frame_translate_result2$virtual_peptide_sequence
+
+vector_substring_or_not <- round_robin_pmap_callr(
+  .l = list(
+    "a1" = purrr::map(.x = parallel::splitIndices(nx = length(vector_virtual_peptide_sequence), ncl = 16), .f = ~vector_virtual_peptide_sequence %>% .[.x]),
+    "a2" = parallel::splitIndices(nx = length(vector_virtual_peptide_sequence), ncl = 16),
+    "a3" = 1:length(purrr::map(.x = parallel::splitIndices(nx = length(vector_virtual_peptide_sequence), ncl = 16), .f = ~vector_virtual_peptide_sequence %>% .[.x]))
+  ),
+  .num_workers = ncores_level_1,
+  .env_flag = "user",
+  .re_export = TRUE,
+  .temp_path = paste(tempdir, output_name, "_vector_substring_or_not_temp.RData", sep = ""),
+  .temp_dir = tempdir,
+  .objects = ls() %>% .[! . %in% c("list_recon_gtf_sectored", "list_recon_gtf_sectored0", "list_recon_gtf_subset_by_chr", "list_3FT_result", "tibble_three_frame_translate_result1", "tibble_three_frame_translate_result2", "tibble_recon_gtf", "tibble_junction_table", "list_junction_table_by_chr", "list_junction_table_sectored", "list_junction_table_sectored0")],
+  .status_messages_dir = paste(tempdir, sep = ""),
+  .job_name = paste(output_name, "_vector_substring_or_not", sep = ""),
+  .result_mode = "ordered",
+  .f = function(a1, a2, a3, a4, a5) {
+    
+    # cat(a2, "\n")
+    
+    # CALLR ###
+    library(seqinr)
+    library(tidyverse)
+    library(furrr)
+    library(rtracklayer)
+    library(data.table)
+    library(optparse)
+    library(regioneR)
+    
+    library(tictoc)
+    # start counting execution time of the whole script
+    tictoc::tic("Overall execution time")
+    
+    options(future.globals.maxSize = 30000000000, future.fork.enable = TRUE)
+    
+    plan(list(tweak(multicore, workers = ncores_level_2)))
+    ###########
+    
+    # DEBUG ###
+    # a1 <- vector_virtual_peptide_sequence %>% .[[74139]]
+    # a2 <- 1:nrow(tibble_summarised_results3) %>% .[[74139]]
+    ###########
+    
+    purrr::map2(
+      .x = a1,
+      .y = a2,
+      .f = ~grepl(x = vector_virtual_peptide_sequence[-a2], pattern = .x, perl = TRUE) %>% any %>% return
+    ) %>% unlist %>% return
+    
+  } ) %>% unlist
+
 tibble_three_frame_translate_result3 <- tibble_three_frame_translate_result2 %>% 
   # add column to indicate if the virtual peptide per row is a substring of another row
-  tibble::add_column("substring_or_not" = furrr::future_imap(.x = tibble_three_frame_translate_result2$virtual_peptide_sequence, .f = ~grepl(x = tibble_three_frame_translate_result2$virtual_peptide_sequence %>% .[-.y], pattern = .x, perl = TRUE) %>% any == TRUE, .progress = TRUE) %>% unlist)
+  tibble::add_column("substring_or_not" = vector_substring_or_not)
 
 # filter out substrings
 tibble_three_frame_translate_result4 <- tibble_three_frame_translate_result3 %>% dplyr::filter(substring_or_not == FALSE)
@@ -1043,6 +1095,10 @@ write.table(junc_bed_table, file = paste(output_dir, "/", output_name, "_junctio
 
 if (save_workspace_when_done == "YES" | save_workspace_when_done == "DEBUG") {
   save.image(file = paste(output_dir, "/", output_name, "_workspace.RData", sep = ""))
+}
+
+if (save_workspace_when_done != "DEBUG") {
+  unlink(paste(output_dir, "temp/", sep = ""), recursive = TRUE)
 }
 
 # finish counting
