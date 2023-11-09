@@ -1155,3 +1155,21 @@ plot_PCA_for_sample_and_replicate <- function(matrixtable, timepoint_order = NUL
   
 }
 
+# sequential splitter by segment size
+## split list/vector x into whatever many segments of size n
+## keep_remainders: whether to keep the last partially filled element due to incomplete division
+seqsplitter <- function(x, n, keep_remainders = TRUE) {
+  
+  if (keep_remainders == TRUE) {
+    list_result <- purrr::map(
+      .x = (1:((length(x)%/%n) + 1)), 
+      .f = ~x[(n*(.x - 1) + 1):min(c(length(x), n*.x))])
+  } else {
+    list_result <- purrr::map(
+      .x = 1:(length(x)%/%n), 
+      .f = ~x[(n*(.x - 1) + 1):min(c(length(x), n*.x))])
+  }
+  
+  return(list_result)
+  
+}
