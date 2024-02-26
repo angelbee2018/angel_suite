@@ -25,22 +25,22 @@
 #   .result_mode = "unordered",
 #   .f = function(b1, b2) {Sys.sleep(0); return(list(LETTERS[b2]))})
 
-round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, .temp_dir = NULL, .re_export = FALSE, .env_flag = "global", .objects, .status_messages_dir, .job_name, .result_mode = "save", .keep_intermediate_files = FALSE, ...) {
+round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, .temp_dir = NULL, .re_export = FALSE, .env_flag = "global", .objects, .status_messages_dir, .job_name, .result_mode = "save", .keep_intermediate_files = FALSE, .debug = FALSE, .chunkify = FALSE, .no_chunks = NULL, ...) {
   
   # DEBUG ###
   # .l = list(
   #   "b1" = 1:20
   # )
-  # .num_workers = 4
+  # .num_workers = 20
   # .env_flag = "user"
   # .re_export = TRUE
-  # .temp_path = paste(tempdir, "/tempdata.rdata", sep = "")
-  # .temp_dir = tempdir
+  # .temp_path = paste(tempdir(), "/tempdata.rdata", sep = "")
+  # .temp_dir = tempdir()
   # .objects = c()
-  # .status_messages_dir = paste(tempdir, sep = "")
+  # .status_messages_dir = paste(tempdir(), sep = "")
   # .job_name = "test"
-  # .result_mode = "unordered"
-  # .f = function(b1) {Sys.sleep(120); return(list(LETTERS[b1]))}
+  # .result_mode = "ordered"
+  # .f = function(b1) {set.seed(b1);Sys.sleep(runif(n = 1, min = 10, max = 15)); return(list(LETTERS[b1]))}
   ###########
   
   system("ulimit -n 65536")
@@ -77,52 +77,140 @@ round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, 
   # preallocate worker list
   list_workers <- list()
   
+  # set up automatic chunking
+  if (.chunkify == TRUE) {
+    
+    if (is.null(.no_chunks) == TRUE) {
+      .no_chunks <- .num_workers
+    } else if (is.numeric(.no_chunks) == FALSE) {
+      .no_chunks <- .num_workers
+    }
+    
+    if (.no_chunks > map_length) {
+      .no_chunks <- map_length
+    }
+    
+    map_length <- .no_chunks
+    
+  }
+  
   # initial allocation of tasks to maximum number of workers
   for (..i in 1:.num_workers) {
     
-    function_current_instance <- .f
-    
-    list_current_arguments <- purrr::map(.x = .l, .f = ~.x[[..i]])
-    
-    formals(fun = function_current_instance) <- list_current_arguments
-    
-    # essential to spike the exported function with a command to read the environment back in
-    body(function_current_instance) <- as.call(purrr::prepend(as.list(body(function_current_instance)), str2expression(paste("load(file = \"", .temp_path, "\")", sep = "")), before = 2))
-    
-    # modify the function depending on what is specified
-    if (.result_mode %in% c("ordered", "unordered")) {
+    if (.chunkify == TRUE) {
       
-      function_to_run <- function(f) {
-        return(NULL)
+      # define chunk for the target of mapping operation
+      .l_current <- purrr::map(.x = .l, .f = ~.x[parallel::splitIndices(nx = length(.l[[1]]), ncl = .no_chunks)[[..i]]])
+      
+      # modify the function depending on what is specified
+      if (.result_mode %in% c("ordered", "unordered")) {
+        
+        # define function to be fun
+        function_to_run <- function(.l_current, .f, .temp_path, .temp_dir, .job_name, ..i) {
+          
+          load(file = .temp_path, envir = .GlobalEnv)
+          
+          print("ls before pmap")
+          print(ls())
+          
+          obj <- purrr::pmap(
+            .l = .l_current,
+            .f = .f
+          )
+          
+          saveRDS(object = obj, file = paste(.temp_dir, "/", .job_name, "_chunk_", ..i, ".rds", sep = ""))
+          
+          return(NULL)
+          
+        }
+        
+        # assign background worker
+        assign(
+          x = paste("chunk_", ..i, sep = ""), 
+          value = callr::r_bg(
+            cmdargs	= c(.temp_path, ..i),
+            args = list(".l_current" = .l_current, ".f" = .f, ".temp_path" = .temp_path, ".temp_dir" = .temp_dir, ".job_name" = .job_name, "..i" = ..i),
+            func = function_to_run
+          )
+        )
+        
+      } else {
+        
+        # define function to be fun
+        function_to_run <- function(.l_current, .f, .temp_path, .temp_dir, .job_name, ..i) {
+          
+          load(file = .temp_path)
+          
+          obj <- purrr::pmap(
+            .l = .l_current,
+            .f = .f
+          )
+          
+          return(NULL)
+          
+        }
+        
+        # assign background worker
+        assign(
+          x = paste("chunk_", ..i, sep = ""), 
+          value = callr::r_bg(
+            cmdargs	= c(.temp_path, ..i),
+            args = list(".l_current" = .l_current, ".f" = .f, ".temp_path" = .temp_path, ".temp_dir" = .temp_dir, ".job_name" = .job_name, "..i" = ..i),
+            func = function_to_run
+          )
+        )
+        
       }
       
-      body(function_to_run) <- as.call(purrr::prepend(as.list(body(function_to_run)), str2expression(paste("saveRDS(object = f(), file = \"", paste(.temp_dir, "/", .job_name, "_chunk_", ..i, ".rds\")", sep = ""), sep = "")), before = 2))
-      
-      assign(
-        x = paste("chunk_", ..i, sep = ""), 
-        value = callr::r_bg(
-          cmdargs	= c(.temp_path, ..i),
-          args = list("f" = function_current_instance),
-          func = function_to_run
-        )
-      )
-      
     } else {
-      function_to_run <- function_current_instance
       
-      assign(
-        x = paste("chunk_", ..i, sep = ""), 
-        value = callr::r_bg(
-          cmdargs	= c(.temp_path, ..i),
-          func = function_to_run
+      function_current_instance <- .f
+      
+      list_current_arguments <- purrr::map(.x = .l, .f = ~.x[[..i]])
+      
+      formals(fun = function_current_instance) <- list_current_arguments
+      
+      # essential to spike the exported function with a command to read the environment back in
+      body(function_current_instance) <- as.call(append(as.list(body(function_current_instance)), str2expression(paste("load(file = \"", .temp_path, "\")", sep = "")), after = 1))
+      
+      # modify the function depending on what is specified
+      if (.result_mode %in% c("ordered", "unordered")) {
+        
+        function_to_run <- function(f) {
+          return(NULL)
+        }
+        
+        body(function_to_run) <- as.call(purrr::prepend(as.list(body(function_to_run)), str2expression(paste("saveRDS(object = f(), file = \"", paste(.temp_dir, "/", .job_name, "_chunk_", ..i, ".rds\")", sep = ""), sep = "")), before = 2))
+        
+        assign(
+          x = paste("chunk_", ..i, sep = ""), 
+          value = callr::r_bg(
+            cmdargs	= c(.temp_path, ..i),
+            args = list("f" = function_current_instance),
+            func = function_to_run
+          )
         )
-      )
+        
+      } else {
+        function_to_run <- function_current_instance
+        
+        assign(
+          x = paste("chunk_", ..i, sep = ""), 
+          value = callr::r_bg(
+            cmdargs	= c(.temp_path, ..i),
+            func = function_to_run
+          )
+        )
+      }
+      
     }
     
     list_workers <- purrr::splice(list_workers, get(paste("chunk_", ..i, sep = "")))
     names(list_workers)[length(list_workers)] <- paste("chunk_", ..i, sep = "")
     
   }
+  
+  global_list_workers_initial <<- list_workers
   
   # keep track of iteration progress
   current_map_index <- .num_workers
@@ -131,9 +219,18 @@ round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, 
   ## NULL values dont count as nonzero - this is good for us
   flag_completion <- FALSE
   
-  while(all(unlist(purrr::map(.x = list_workers, .f = ~.x$get_exit_status())) == 0)) {
+  vector_exit_statuses <- 0
+  
+  while(all(vector_exit_statuses == 0)) {
     
     vector_logical_indices_workers_completed_reported <- unlist(purrr::map(.x = list_workers, .f = ~.x$get_exit_status())) == 0
+    
+    if (.debug == TRUE) {
+      print("vector_logical_indices_workers_completed_reported")
+      print(vector_logical_indices_workers_completed_reported)
+      
+      global_vector_logical_indices_workers_completed_reported <<- vector_logical_indices_workers_completed_reported
+    }
     
     # check on process status and write progress file
     list_logical_any_error <- purrr::map2(
@@ -151,13 +248,13 @@ round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, 
         
         if (length(stdout_lines) != 0) {
           write(x = paste(Sys.time()), file = paste(.status_messages_dir, .job_name, "_", a2, "_stdout.txt", sep = ""), append = TRUE)
-          write.table(x = stdout_lines, file = paste(.status_messages_dir, .job_name, "_", a2, "_stdout.txt", sep = ""), append = TRUE, row.names = FALSE, quote = FALSE)
-          }
+          write.table(x = stdout_lines, file = paste(.status_messages_dir, .job_name, "_", a2, "_stdout.txt", sep = ""), append = TRUE, row.names = FALSE, quote = FALSE) %>% suppressWarnings()
+        }
         
         if (length(stderr_lines) != 0) {
           write(x = paste(Sys.time()), file = paste(.status_messages_dir, .job_name, "_", a2, "_stderr.txt", sep = ""), append = TRUE)
-          write.table(x = stderr_lines, file = paste(.status_messages_dir, .job_name, "_", a2, "_stderr.txt", sep = ""), append = TRUE, row.names = FALSE, quote = FALSE)
-          }
+          write.table(x = stderr_lines, file = paste(.status_messages_dir, .job_name, "_", a2, "_stderr.txt", sep = ""), append = TRUE, row.names = FALSE, quote = FALSE) %>% suppressWarnings()
+        }
         
         return(
           grepl(x = stderr_lines, pattern = "^Error in", ignore.case = FALSE)
@@ -191,43 +288,109 @@ round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, 
           # print("..i")
           # print(..i)
           
-          function_current_instance <- .f
-          
-          list_current_arguments <- purrr::map(.x = .l, .f = ~.x[[..i]])
-          
-          formals(fun = function_current_instance) <- list_current_arguments
-          
-          # essential to spike the exported function with a command to read the environment back in
-          body(function_current_instance) <- as.call(purrr::prepend(as.list(body(function_current_instance)), str2expression(paste("load(file = \"", .temp_path, "\")", sep = "")), before = 2))
-          
-          # modify the function depending on what is specified
-          if (.result_mode %in% c("ordered", "unordered")) {
+          if (.chunkify == TRUE) {
             
-            function_to_run <- function(f) {
-              return(NULL)
+            # define chunk for the target of mapping operation
+            .l_current <- purrr::map(.x = .l, .f = ~.x[parallel::splitIndices(nx = length(.l[[1]]), ncl = .no_chunks)[[..i]]])
+            
+            # modify the function depending on what is specified
+            if (.result_mode %in% c("ordered", "unordered")) {
+              
+              # define function to be fun
+              function_to_run <- function(.l_current, .f, .temp_path, .temp_dir, .job_name, ..i) {
+                
+                load(file = .temp_path)
+                
+                obj <- purrr::pmap(
+                  .l = .l_current,
+                  .f = .f
+                )
+                
+                saveRDS(object = obj, file = paste(.temp_dir, "/", .job_name, "_chunk_", ..i, ".rds", sep = ""))
+                
+                return(NULL)
+                
+              }
+              
+              # assign background worker
+              assign(
+                x = paste("chunk_", ..i, sep = ""), 
+                value = callr::r_bg(
+                  cmdargs	= c(.temp_path, ..i),
+                  args = list(".l_current" = .l_current, ".f" = .f, ".temp_path" = .temp_path, ".temp_dir" = .temp_dir, ".job_name" = .job_name, "..i" = ..i),
+                  func = function_to_run
+                )
+              )
+              
+            } else {
+              
+              # define function to be fun
+              function_to_run <- function(.l_current, .f, .temp_path, .temp_dir, .job_name, ..i) {
+                
+                load(file = .temp_path)
+                
+                obj <- purrr::pmap(
+                  .l = .l_current,
+                  .f = .f
+                )
+                
+                return(NULL)
+                
+              }
+              
+              # assign background worker
+              assign(
+                x = paste("chunk_", ..i, sep = ""), 
+                value = callr::r_bg(
+                  cmdargs	= c(.temp_path, ..i),
+                  args = list(".l_current" = .l_current, ".f" = .f, ".temp_path" = .temp_path, ".temp_dir" = .temp_dir, ".job_name" = .job_name, "..i" = ..i),
+                  func = function_to_run
+                )
+              )
+              
             }
             
-            body(function_to_run) <- as.call(purrr::prepend(as.list(body(function_to_run)), str2expression(paste("saveRDS(object = f(), file = \"", paste(.temp_dir, "/", .job_name, "_chunk_", ..i, ".rds\")", sep = ""), sep = "")), before = 2))
-            
-            assign(
-              x = paste("chunk_", ..i, sep = ""), 
-              value = callr::r_bg(
-                cmdargs	= c(.temp_path, ..i),
-                args = list("f" = function_current_instance),
-                func = function_to_run
-              )
-            )
-            
           } else {
-            function_to_run <- function_current_instance
             
-            assign(
-              x = paste("chunk_", ..i, sep = ""), 
-              value = callr::r_bg(
-                cmdargs	= c(.temp_path, ..i),
-                func = function_to_run
+            function_current_instance <- .f
+            
+            list_current_arguments <- purrr::map(.x = .l, .f = ~.x[[..i]])
+            
+            formals(fun = function_current_instance) <- list_current_arguments
+            
+            # essential to spike the exported function with a command to read the environment back in
+            body(function_current_instance) <- as.call(purrr::prepend(as.list(body(function_current_instance)), str2expression(paste("load(file = \"", .temp_path, "\")", sep = "")), before = 2))
+            
+            # modify the function depending on what is specified
+            if (.result_mode %in% c("ordered", "unordered")) {
+              
+              function_to_run <- function(f) {
+                return(NULL)
+              }
+              
+              body(function_to_run) <- as.call(purrr::prepend(as.list(body(function_to_run)), str2expression(paste("saveRDS(object = f(), file = \"", paste(.temp_dir, "/", .job_name, "_chunk_", ..i, ".rds\")", sep = ""), sep = "")), before = 2))
+              
+              assign(
+                x = paste("chunk_", ..i, sep = ""), 
+                value = callr::r_bg(
+                  cmdargs	= c(.temp_path, ..i),
+                  args = list("f" = function_current_instance),
+                  func = function_to_run
+                )
               )
-            )
+              
+            } else {
+              function_to_run <- function_current_instance
+              
+              assign(
+                x = paste("chunk_", ..i, sep = ""), 
+                value = callr::r_bg(
+                  cmdargs	= c(.temp_path, ..i),
+                  func = function_to_run
+                )
+              )
+            }
+            
           }
           
           list_workers <- purrr::splice(list_workers, get(paste("chunk_", ..i, sep = "")))
@@ -235,12 +398,16 @@ round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, 
           
         }
         
+        if (.debug == TRUE) {
+          global_list_workers <<- list_workers
+        }
+        
       }
       
       # SPLICER
       
       if (.result_mode %in% c("ordered", "unordered")) {
-      
+        
         # initialise list_result if it hasnt already been created
         if (ls(pattern = "^list_result$") %>% length == 0) {
           list_result <- list()
@@ -252,7 +419,19 @@ round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, 
           
           vector_completed_chunks <- names(vector_logical_indices_workers_completed_reported) %>% gsub(pattern = "chunk_", replacement = "") %>% type.convert(as.is = TRUE)
           
+          if (.debug == TRUE) {
+            print("vector_completed_chunks")
+            print(vector_completed_chunks)
+            global_vector_completed_chunks <<- vector_completed_chunks
+          }
+          
           vector_chunks_to_be_spliced <- setdiff(vector_completed_chunks, vector_current_chunks_spliced) %>% sort
+          
+          if (.debug == TRUE) {
+            print("vector_chunks_to_be_spliced")
+            print(vector_chunks_to_be_spliced)
+            global_vector_chunks_to_be_spliced <<- vector_chunks_to_be_spliced
+          }
           
           # consider order
           if (length(vector_chunks_to_be_spliced) > 0) {
@@ -263,14 +442,42 @@ round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, 
               tibble_diffs <- tibble("n" = c(vector_current_chunks_spliced, vector_chunks_to_be_spliced) %>% sort, "n_minus_1" = c(c(vector_current_chunks_spliced, vector_chunks_to_be_spliced) %>% sort %>% .[2:length(.)], NA)) %>% 
                 dplyr::mutate("diff" = `n_minus_1` - `n`)
               
-              index_last_consecutive <- intersect(which(tibble_diffs$diff == 1), c(which(tibble_diffs$diff > 1) - 1, nrow(tibble_diffs) - 1)) %>% .[1]
+              if (.debug == TRUE) {
+                global_tibble_diffs <<- tibble_diffs
+                
+                print("tibble_diffs")
+                print(global_tibble_diffs)
+              }
               
-              if (length(index_last_consecutive) > 0) {
+              if (tibble_diffs$diff[1] != 1) {
+                index_last_consecutive <- NA
+              } else if (nrow(tibble_diffs) == 2) {
+                index_last_consecutive <- 1
+              } else if (all(na.omit(tibble_diffs$diff) == 1)) {
+                index_last_consecutive <- nrow(tibble_diffs)
+              } else {
+                index_last_consecutive <- which(tibble_diffs$diff != 1)[1]
+              }
+              
+              if (.debug == TRUE) {
+                print("index_last_consecutive")
+                print(index_last_consecutive)
+                
+                global_index_last_consecutive <<- index_last_consecutive
+              }
+              
+              if (length(index_last_consecutive) > 0 & is.na(index_last_consecutive) == FALSE) {
                 vector_chunks_to_be_spliced <- intersect(vector_chunks_to_be_spliced, tibble_diffs$n_minus_1 %>% .[1:index_last_consecutive])
               } else {
                 vector_chunks_to_be_spliced <- integer(0)
               }
-              
+             
+              if (.debug == TRUE) {
+                print("vector_chunks_to_be_spliced 2")
+                print(vector_chunks_to_be_spliced)
+                global_vector_chunks_to_be_spliced <<- vector_chunks_to_be_spliced
+              }
+               
             }
             
           }
@@ -316,25 +523,30 @@ round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, 
       
     }
     
+    vector_exit_statuses <- unlist(purrr::map(.x = list_workers, .f = ~.x$get_exit_status()))
+    
     Sys.sleep(1)
     
   }
   
   # if any error, stop all
-  if (any(unlist(purrr::map(.x = list_workers, .f = ~.x$get_exit_status())) != 0)) {
+  if (any(vector_exit_statuses != 0)) {
     purrr::map(.x = list_workers, .f = ~.x$signal(9))
-    stop(print(paste("Exit status failure received on chunks:", paste(names(list_workers)[which(unlist(purrr::map(.x = list_workers, .f = ~.x$get_exit_status())) != 0)], collapse = ", "))))
+    stop(print(paste("Exit status failure received on chunks:", paste(names(list_workers)[which(vector_exit_statuses != 0)], collapse = ", "))))
   }
   
   # after the while loop is done, deal with splicing and socket transfer if we want the object returned immediately
   if (.result_mode %in% c("ordered", "unordered")) {
+    if (.chunkify == TRUE) {
+      list_result <- list_result %>% purrr::flatten()
+    }
     return(list_result)
   } else {
     return(NULL)
   }
   
   if (.keep_intermediate_files == FALSE) {
-    file.remove(list.files(path = .temp_dir, pattern = paste(.job_name, "_chunk_.*.rds", sep = ""), full.names = TRUE ))
+    unlink(list.files(path = .temp_dir, pattern = paste(.job_name, "_chunk_.*.rds", sep = ""), full.names = TRUE ), recursive = TRUE)
   }
   
   rm(list = ls(pattern = "chunk_"))
@@ -361,7 +573,7 @@ numbers_to_intervals <- function(vector_input) {
   } else {
     
     tibble_n_n.plus.1 <- tibble::tibble("n" = head(x = vector_input_sorted, n = length(vector_input_sorted) - 1),
-                                "n.plus.1" = vector_input_sorted[2:length(vector_input_sorted)])
+                                        "n.plus.1" = vector_input_sorted[2:length(vector_input_sorted)])
     
     tibble_n_n.plus.1 <- tibble::add_column(.data = tibble_n_n.plus.1, "difference" = tibble_n_n.plus.1$n.plus.1 - tibble_n_n.plus.1$n)
     
@@ -390,7 +602,7 @@ numbers_to_intervals <- function(vector_input) {
     "end" = vec_ends,
     "width" = vec_widths 
   )
-
+  
   return(tibble_intervals)
   
 }
@@ -603,7 +815,7 @@ extract_junction.flanking.exons <- function(query_chr, query_start, query_end, q
 ## tibble_gtf_table: rtracklayer::import(...) %>% as_tibble. can be any GTF. reconstructed or reference.
 ## index: loop progress marker to be used with imap
 
-extract_overlapping_features <- function(query_chr, query_start, query_end, query_strand, tibble_gtf_table, left_query_shift = 0, right_query_shift = 0, left_tolerance = 0, right_tolerance = 0, return_type = NULL) {
+extract_overlapping_features <- function(query_chr, query_start, query_end, query_strand, tibble_gtf_table, left_query_shift = 0, right_query_shift = 0, left_tolerance = 0, right_tolerance = 0, return_type = NULL, complete_overlap = FALSE) {
   
   # DEBUG ###################
   # index <- 1
@@ -634,18 +846,39 @@ extract_overlapping_features <- function(query_chr, query_start, query_end, quer
     query_strand <- "*"
   }
   
-  if (!(query_strand == "+" | query_strand == "-")) {
+  if (complete_overlap == FALSE) {
     
-    # +/- 1 nt tolerance
-    tibble_gtf_subset_matching_exons <- tibble_gtf_table[tibble_gtf_table$seqnames == query_chr %>% trimws, ] %>% 
-      .[which(.$end >= ((query_start %>% as.numeric) + left_query_shift - left_tolerance) & .$start <= ((query_end %>% as.numeric) + right_query_shift + right_tolerance)), ]
+    if (!(query_strand == "+" | query_strand == "-")) {
+      
+      # +/- 1 nt tolerance
+      tibble_gtf_subset_matching_exons <- tibble_gtf_table[tibble_gtf_table$seqnames == query_chr %>% trimws, ] %>% 
+        .[which(.$end >= ((query_start %>% as.numeric) + left_query_shift - left_tolerance) & .$start <= ((query_end %>% as.numeric) + right_query_shift + right_tolerance)), ]
+      
+    } else if (query_strand == "+" | query_strand == "-") {
+      
+      # +/- 1 nt tolerance
+      tibble_gtf_subset_matching_exons <- tibble_gtf_table[tibble_gtf_table$seqnames == query_chr %>% trimws &
+                                                             tibble_gtf_table$strand == query_strand %>% trimws, ] %>% 
+        .[which(.$end >= ((query_start %>% as.numeric) + left_query_shift - left_tolerance) & .$start <= ((query_end %>% as.numeric) + right_query_shift + right_tolerance)), ]
+      
+    }
     
-  } else if (query_strand == "+" | query_strand == "-") {
+  } else {
     
-    # +/- 1 nt tolerance
-    tibble_gtf_subset_matching_exons <- tibble_gtf_table[tibble_gtf_table$seqnames == query_chr %>% trimws &
-                                                           tibble_gtf_table$strand == query_strand %>% trimws, ] %>% 
-      .[which(.$end >= ((query_start %>% as.numeric) + left_query_shift - left_tolerance) & .$start <= ((query_end %>% as.numeric) + right_query_shift + right_tolerance)), ]
+    if (!(query_strand == "+" | query_strand == "-")) {
+      
+      # +/- 1 nt tolerance
+      tibble_gtf_subset_matching_exons <- tibble_gtf_table[tibble_gtf_table$seqnames == query_chr %>% trimws, ] %>% 
+        .[which(.$start <= ((query_start %>% as.numeric) + left_query_shift + left_tolerance) & .$end >= ((query_end %>% as.numeric) + right_query_shift - right_tolerance)), ]
+      
+    } else if (query_strand == "+" | query_strand == "-") {
+      
+      # +/- 1 nt tolerance
+      tibble_gtf_subset_matching_exons <- tibble_gtf_table[tibble_gtf_table$seqnames == query_chr %>% trimws &
+                                                             tibble_gtf_table$strand == query_strand %>% trimws, ] %>% 
+        .[which(.$start <= ((query_start %>% as.numeric) + left_query_shift + left_tolerance) & .$end >= ((query_end %>% as.numeric) + right_query_shift - right_tolerance)), ]
+      
+    }
     
   }
   
@@ -836,11 +1069,11 @@ split_delimited_columns_in_table <- function(input_table, target_colnames, split
   list_split_columns <- apply(X = input_table[, target_colnames], MARGIN = 2, FUN = function(x) {return(strsplit(x, split = split))} )
   
   list_split_lengths <- pmap(
-      .l = list_split_columns, 
-      .f = function(...) {
-        return(unique(unlist(purrr::map(.x = list(...), .f = ~length(.x)))))
-      }
-    )
+    .l = list_split_columns, 
+    .f = function(...) {
+      return(unique(unlist(purrr::map(.x = list(...), .f = ~length(.x)))))
+    }
+  )
   
   if (unique(unlist(purrr::map(.x = list_split_lengths, .f = ~length(.x))))[1] != 1 | length(unique(unlist(purrr::map(.x = list_split_lengths, .f = ~length(.x))))) != 1) {
     stop("Multicolumn splits are uneven. Cannot proceed further.")
@@ -852,7 +1085,7 @@ split_delimited_columns_in_table <- function(input_table, target_colnames, split
   input_table_repeated_by_split <- input_table[row_indices_of_table_repeated_by_split, ]
   
   # replace target column with split values
-  input_table_repeated_by_split[, target_colnames] <- input_table_repeated_by_split
+  input_table_repeated_by_split[, target_colnames] <- list_split_columns %>% purrr::map(.f = ~.x %>% unlist) %>% tibble::as_tibble()
   
   split_table <- input_table_repeated_by_split
   
@@ -923,10 +1156,10 @@ plot_UMAP_sample_and_replicate_plotly <- function(table_matrix, condition_order 
   # height <- 40
   ###########
   
-  transposed_matrixtable <- table_matrix %>% t
-  # rownames(transposed_matrixtable) <- colnames(table_matrix)
+  table_matrix <- table_matrix %>% t
+  # rownames(table_matrix) <- colnames(table_matrix)
   
-  tibble_umap_result <- umap::umap(transposed_matrixtable) %>% .$layout %>% 
+  tibble_umap_result <- umap::umap(table_matrix) %>% .$layout %>% 
     tibble::as_tibble(rownames = "condition|replicate", .name_repair = "unique") %>%
     setNames(nm = c("condition|replicate", "V1", "V2")) %>%
     tibble::add_column(
@@ -990,13 +1223,11 @@ plot_UMAP_sample_and_replicate_plotly <- function(table_matrix, condition_order 
   
 }
 
-# FUNCTION TO PLOT tSNE FOR SAMPLE AND REPLICATE
-# tibble_metadata: this should have n columns equal to the number of annotation to be specified, and m rows equal to number of samples (including replicates). basically a collection of vectors of length equal to number of samples.
-# protected colname: "condition_names", "replicate_names"
-plot_tSNE_for_timepoint_and_replicate_plotly <- function(table_matrix, timepoint_order = NULL, tibble_metadata = NULL, replicate_order = NULL, plot_shapes = TRUE, centroid_labels = TRUE, point_size = 5, centroid_label_size = 4, legend_position = "none", PCA_depths_y = NULL, PCA_depths_x = NULL, input_colour_limits = NULL, input_colour_value = NULL, save_dir = NULL, save_name = NULL, graph_title = NULL, width = 10, height = 10, ...) {
+## old version
+plot_UMAP_for_timepoint_and_replicate_plotly <- function(transposed_matrixtable, timepoint_order = NULL, tibble_colour_metadata = NULL, replicate_order = NULL, plot_shapes = TRUE, centroid_labels = TRUE, point_size = 5, centroid_label_size = 4, legend_position = "none", PCA_depths_y = NULL, PCA_depths_x = NULL, input_colour_limits = NULL, input_colour_value = NULL, save_dir = NULL, save_name = NULL, graph_title = NULL, width = 10, height = 10, ...) {
   
   # DEBUG ###
-  # table_matrix <- tibble_matrix_absolute_psi_in_sample_replicate_format_with_na
+  # transposed_matrixtable <- tibble_matrix_absolute_psi_in_sample_replicate_format_with_na %>% t %>% .[gsub(x = rownames(.), pattern = "^(.*)\\|.*$", replacement = "\\1") %in% tibble_sharp_cluster_mapping$condition_names, ]
   # timepoint_order <- temp_condition_names
   # replicate_order <- c("r1", "r2")
   # plot_shapes <- FALSE
@@ -1007,7 +1238,7 @@ plot_tSNE_for_timepoint_and_replicate_plotly <- function(table_matrix, timepoint
   # PCA_depths_y <- c(2, 3, 4)
   # PCA_depths_x <- c(1, 2, 3)
   # input_colour_limits <- tibble_sharp_cluster_mapping$condition_names
-  # tibble_metadata <- tibble_sharp_cluster_mapping %>% dplyr::ungroup() %>% dplyr::rename("som_cluster" = "cluster", "condition_names" = "condition_names") %>% dplyr::select(som_cluster, condition_names, Description, Biological_source, Type) %>% dplyr::mutate_at(.vars = c("Description", "Biological_source", "Type"), .funs = function(x) {gsub(x = x, pattern = "[^a-zA-Z0-9 -/]", replacement = "")}) 
+  # tibble_colour_metadata <- tibble_sharp_cluster_mapping %>% dplyr::ungroup() %>% dplyr::rename("som_cluster" = "cluster", "input_colour_limits" = "condition_names") %>% dplyr::select(id, som_cluster, input_colour_limits, Description, Biological_source, Type) %>% dplyr::mutate_at(.vars = c("Description", "Biological_source", "Type"), .funs = function(x) {gsub(x = x, pattern = "[^a-zA-Z0-9 -/]", replacement = "")})
   # input_colour_value = rainbow(tibble_sharp_cluster_mapping$cluster %>% max) %>% .[tibble_sharp_cluster_mapping$cluster]
   # save_dir <- R_processing_results_dir
   # save_name <- paste("atlas_polya_psisigma_consensus_som_clusterone_with_na_plotly", sep = "")
@@ -1016,11 +1247,102 @@ plot_tSNE_for_timepoint_and_replicate_plotly <- function(table_matrix, timepoint
   # height <- 40
   ###########
   
-  transposed_matrixtable <- table_matrix %>% t
+  tibble_umap_result <- umap::umap(transposed_matrixtable) %>% .$layout %>% 
+    as_tibble(rownames = "condition|replicate", .name_repair = "unique") %>%
+    setNames(nm = c("condition|replicate", "V1", "V2")) %>%
+    add_column("condition_names" = gsub(x = .$`condition|replicate`, pattern = "(.*)\\|(.*)", replacement = "\\1"),
+               "replicate_names" = gsub(x = .$`condition|replicate`, pattern = "(.*)\\|(.*)", replacement = "\\2")
+    )
   
-  tibble_tsne_result <- Rtsne::Rtsne(X = transposed_matrixtable %>% unique, perplexity = 1, check_duplicates = FALSE, verbose = TRUE, num_threads = 0) %>% .$Y %>% 
+  # centroid labels: make a separate file containing the centroid locations
+  tibble_centroid_locations <- tibble_umap_result %>% 
+    dplyr::group_by(condition_names) %>% 
+    dplyr::summarise("centroid_x" = mean(V1),
+                     "centroid_y" = mean(V2)) %>%
+    add_column("cluster_number" = paste(1:nrow(.)), .after = "condition_names")
+  
+  tibble_colour_metadata <- tibble_colour_metadata[match(tibble_centroid_locations$condition_names, tibble_colour_metadata$input_colour_limits), ]
+  
+  # append cluster info
+  tibble_umap_result_plot <- dplyr::left_join(tibble_umap_result, tibble_centroid_locations, by = "condition_names")
+  
+  if (is.null(input_colour_limits) == TRUE) {
+    
+    input_colour_limits <- c(tibble_umap_result_plot$condition_names %>% unique)
+    
+  }
+  
+  if (is.null(input_colour_value) == TRUE) {
+    
+    input_colour_value <- rainbow(n = (timepoint_order %>% length))
+    
+  }
+  
+  # plot UMAP for multiple depths all in one go.
+  ggplot_plot <- ggplot() +
+    (if (plot_shapes == TRUE) {geom_point(aes(x = tibble_umap_result_plot$V1, y = tibble_umap_result_plot$V2, shape = tibble_umap_result_plot$replicate_names, color = tibble_umap_result_plot$condition_names, fill = tibble_umap_result_plot$condition_names), size = point_size) } else {geom_blank(aes(x = tibble_umap_result_plot$V1, y = tibble_umap_result_plot$V2))}) +
+    scale_shape_manual(name = "Replicate", values = 15+(1:length(replicate_order))) +
+    (if (centroid_labels == TRUE) {geom_text(data = tibble_centroid_locations, aes(x = centroid_x, y = centroid_y, label = cluster_number, color = condition_names, som_cluster = tibble_colour_metadata$som_cluster, Description = tibble_colour_metadata$Description, Biological_source = tibble_colour_metadata$Biological_source, Type = tibble_colour_metadata$Type), size = centroid_label_size)} else {geom_blank(aes(x = tibble_centroid_locations$centroid_x, y = tibble_centroid_locations$centroid_y))}) +
+    scale_fill_manual(name = "Timepoint", breaks = input_colour_limits, limits = input_colour_limits, values = input_colour_value) +
+    scale_colour_manual(name = "Timepoint", breaks = input_colour_limits, limits = input_colour_limits, values = input_colour_value) +
+    # scale_color_brewer(name = "Timepoint", palette = "Spectral", breaks = timepoint_order, limits = timepoint_order) +
+    ggtitle(paste("UMAP projection\n", graph_title, sep = "")) +
+    guides(som_cluster = guide_legend(order = 1)) +
+    # guides(size = FALSE) +
+    xlab("UMAP_1") +
+    ylab("UMAP_2") +
+    theme_bw() +
+    theme(text = element_text(family = "Helvetica"), legend.position = legend_position)
+  
+  plotly::ggplotly(
+    p = ggplot_plot,
+    width = NULL,
+    height = NULL,
+    tooltip = "all",
+    dynamicTicks = FALSE,
+    layerData = "Timepoint",
+    originalData = TRUE,
+  ) %>% 
+    htmlwidgets::saveWidget(paste(save_dir, "/", save_name, ".html", sep = ""))
+  
+  ggsave(plot = ggplot_plot, filename = paste(save_dir, "/", save_name, ".pdf", sep = ""), device = "pdf", dpi = 600, width = width, height = height, units = "cm")
+  # ggsave(plot = ggplot_plot, filename = paste(save_dir, "/", save_name, ".svg", sep = ""), device = "svg", dpi = 600, width = width, height = height, units = "cm")
+  
+  write.table(x = tibble_centroid_locations, file = paste(save_dir, "/", save_name, "_cluster_legend.txt", sep = ""), sep = "\t", quote = FALSE, row.names = FALSE, col.names = TRUE)
+  
+}
+
+# FUNCTION TO PLOT tSNE FOR SAMPLE AND REPLICATE
+# tibble_metadata: this should have n columns equal to the number of annotation to be specified, and m rows equal to number of samples (including replicates). basically a collection of vectors of length equal to number of samples.
+# protected colname: "condition_names", "replicate_names"
+plot_tSNE_for_timepoint_and_replicate_plotly <- function(table_matrix, timepoint_order = NULL, tibble_metadata = NULL, replicate_order = NULL, plot_shapes = TRUE, centroid_labels = TRUE, point_size = 5, centroid_label_size = 4, legend_position = "none", PCA_depths_y = NULL, PCA_depths_x = NULL, input_colour_limits = NULL, input_colour_value = NULL, save_dir = NULL, save_name = NULL, graph_title = NULL, width = 10, height = 10, ...) {
+  
+  # DEBUG ###
+  # table_matrix <- tibble_matrix_absolute_psi_in_sample_replicate_format_with_na %>% t %>% .[gsub(x = rownames(.), pattern = "^(.*)\\|.*$", replacement = "\\1") %in% tibble_sharp_cluster_mapping$condition_names, ]
+  # timepoint_order <- temp_condition_names
+  # replicate_order <- c("r1", "r2")
+  # plot_shapes <- FALSE
+  # legend_position <- "none"
+  # centroid_labels <- TRUE
+  # point_size <- 1
+  # centroid_label_size <- 5
+  # PCA_depths_y <- c(2, 3, 4)
+  # PCA_depths_x <- c(1, 2, 3)
+  # input_colour_limits <- tibble_sharp_cluster_mapping$condition_names
+  # tibble_metadata <- tibble_sharp_cluster_mapping %>% dplyr::ungroup() %>% dplyr::rename("som_cluster" = "cluster", "input_colour_limits" = "condition_names") %>% dplyr::select(id, som_cluster, input_colour_limits, Description, Biological_source, Type) %>% dplyr::mutate_at(.vars = c("Description", "Biological_source", "Type"), .funs = function(x) {gsub(x = x, pattern = "[^a-zA-Z0-9 -/]", replacement = "", useBytes = TRUE)})
+  # input_colour_value <- rainbow(tibble_sharp_cluster_mapping$cluster %>% max) %>% .[tibble_sharp_cluster_mapping$cluster]
+  # save_dir <- R_processing_results_dir
+  # save_name <- paste(vector_experiment_metadata_main %>% paste(collapse = "_"), "_tsne_consensus_som_clusterone_with_na_plotly_", sampletype_choice, sep = "")
+  # graph_title <- "Total RNA/MAJIQ w/ replicates, coloured by consensus SOM clusters"
+  # width <- 40
+  # height <- 40
+  ###########
+  
+  table_matrix <- table_matrix %>% t
+  
+  tibble_tsne_result <- Rtsne::Rtsne(X = table_matrix %>% unique, perplexity = 1, check_duplicates = FALSE, verbose = TRUE, num_threads = 0) %>% .$Y %>% 
     as_tibble(.name_repair = "unique") %>%
-    add_column("condition_names" = rownames(transposed_matrixtable %>% unique), .before = 1) %>%
+    add_column("condition_names" = rownames(table_matrix %>% unique), .before = 1) %>%
     setNames(nm = c("condition|replicate", "V1", "V2")) %>%
     add_column("condition_names" = gsub(x = .$`condition|replicate`, pattern = "(.*)\\|(.*)", replacement = "\\1"),
                "replicate_names" = gsub(x = .$`condition|replicate`, pattern = "(.*)\\|(.*)", replacement = "\\2")
@@ -1052,7 +1374,7 @@ plot_tSNE_for_timepoint_and_replicate_plotly <- function(table_matrix, timepoint
   ggplot_plot <- ggplot() +
     (if (plot_shapes == TRUE) {geom_point(aes(x = tibble_tsne_result_plot$V1, y = tibble_tsne_result_plot$V2, shape = tibble_tsne_result_plot$replicate_names, color = tibble_tsne_result_plot$condition_names, fill = tibble_tsne_result_plot$condition_names), size = point_size) } else {geom_blank(aes(x = tibble_tsne_result_plot$V1, y = tibble_tsne_result_plot$V2))}) +
     scale_shape_manual(name = "Replicate", values = 1:length(replicate_order)) +
-    (if (centroid_labels == TRUE) {geom_text(data = tibble_tsne_result_plot, mapping = do.call(what = aes, args = list("x" = tibble_tsne_result_plot$centroid_x, "y" = tibble_tsne_result_plot$centroid_y, "label" = tibble_tsne_result_plot$cluster_number, "color" = tibble_tsne_result_plot$condition_names) %>% purrr::splice(tibble_umap_result %>% dplyr::select(-`condition|replicate`, -V1, -V2, -contains("condition_names"), -contains("replicate_names")) %>% purrr::array_tree(margin = 2))), size = centroid_label_size)} else {geom_blank(aes(x = tibble_tsne_result_plot$centroid_x, y = tibble_tsne_result_plot$centroid_y))}) +
+    (if (centroid_labels == TRUE) {geom_text(data = tibble_tsne_result_plot, mapping = do.call(what = aes, args = list("x" = tibble_tsne_result_plot$centroid_x, "y" = tibble_tsne_result_plot$centroid_y, "label" = tibble_tsne_result_plot$cluster_number, "color" = tibble_tsne_result_plot$condition_names) %>% purrr::splice(tibble_tsne_result_plot %>% dplyr::select(-`condition|replicate`, -V1, -V2, -contains("condition_names"), -contains("replicate_names")) %>% purrr::array_tree(margin = 2))), size = centroid_label_size)} else {geom_blank(aes(x = tibble_tsne_result_plot$centroid_x, y = tibble_tsne_result_plot$centroid_y))}) +
     scale_fill_manual(name = "Timepoint", breaks = input_colour_limits, limits = input_colour_limits, values = input_colour_value) +
     scale_colour_manual(name = "Timepoint", breaks = input_colour_limits, limits = input_colour_limits, values = input_colour_value) +
     # scale_color_brewer(name = "Timepoint", palette = "Spectral", breaks = timepoint_order, limits = timepoint_order) +
