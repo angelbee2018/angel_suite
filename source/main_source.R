@@ -765,10 +765,10 @@ extract_junction.flanking.exons <- function(query_chr, query_start, query_end, q
   
   # print(paste("now processing junction number", index))
   
-  global_query_chr <<- query_chr
-  global_query_start <<- query_start
-  global_query_end <<- query_end
-  global_query_strand <<- query_strand
+  # global_query_chr <<- query_chr
+  # global_query_start <<- query_start
+  # global_query_end <<- query_end
+  # global_query_strand <<- query_strand
   
   if (is.na(query_strand) | is.null(query_strand)) {
     query_strand <- "*"
