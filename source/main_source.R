@@ -43,7 +43,17 @@ round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, 
   # .f = function(b1) {set.seed(b1);Sys.sleep(runif(n = 1, min = 10, max = 15)); return(list(LETTERS[b1]))}
   ###########
   
-  system("ulimit -n 65536")
+  for (i in c("globals", "callr", "purrr", "parallel", "magrittr", "utils", "tibble", "dplyr", "lubridate")) { 
+    
+    if (require(i, character.only = TRUE) == FALSE) {
+      stop(paste("Package \"", i, "\" not found. Please install using `install.packages` or `BiocManager::install`", sep = ""))
+    }
+    
+  }
+  
+  if (system("ulimit -n", intern = TRUE) %>% type.convert(as.is = TRUE) < 65536) {
+    warning(paste("System max. open file limit is less than the recommended 65536. Current limit is set to: ", system("ulimit -n", intern = TRUE), ". To fix this, please re-run R from bash terminal after having set `ulimit -n 65536` to avoid possible errors with large jobs and/or large number of workers/chunks.", sep = ""))
+  }
   
   if (is.null(.job_name)) {
     .job_name <- as.numeric(Sys.time())
@@ -73,6 +83,11 @@ round_robin_pmap_callr <- function(.l, .f, .num_workers = 1, .temp_path = NULL, 
   if (length(map_length) != 1) {
     stop("ERROR: list args have incompatible lengths.")
   }
+  
+  # SCOPING ###
+  vector_global_variables <- globals::findGlobals(testfun)
+  vector_global_packages <- globals::packagesOf(globals::globalsOf(testfun, mustExist = FALSE)) %>% setdiff(., c("base", "rlang"))
+  # END SCOPING ###
   
   # preallocate worker list
   list_workers <- list()
