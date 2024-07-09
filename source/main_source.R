@@ -1,28 +1,8 @@
 # This document contains all the amazing scripts necessary to do regular bioinformatics manipulations.
+# PLEASE CITE ME BECAUSE THIS WAS KIND OF TOUGH WORK
 
 # simple round robin callr
-## true round robin
-## one line per process
-## global environment automatically exported via temp file
-
-# test_tempfile <- tempfile()
-# test_tempdir <- tempdir()
-# 
-# test <- round_robin_pmap_callr(
-#   .l = list(
-#     "b1" = a1 %>% purrr::array_tree() %>% head,
-#     "b2" = 1:length(a1 %>% purrr::array_tree() %>% head)
-#   ),
-#   .num_workers = 4,
-#   .globals_mode = "user",
-#   .re_export = TRUE,
-#   .globals_save_path = paste(tempdir, "/tempdata.rdata", sep = ""),
-#   .intermediate_files_dir = tempdir,
-#   .user_global_objects = c(),
-#   .status_messages_dir = paste(tempdir, sep = ""),
-#   .job_name = "test",
-#   .splicing_order = "unordered",
-#   .f = function(b1, b2) {Sys.sleep(0); return(list(LETTERS[b2]))})
+## YA NO ES SENCILLO
 
 # .l, .f: purrr::pmap arguments
 # .num_workers: number of parallel processes to use. this is a maximum value. will never exceed number of chunks. DEFAULT: 1
@@ -686,6 +666,22 @@ round_robin_pmap_callr <- function(
   }
   
 }
+
+# test <- round_robin_pmap_callr(
+#   .l = list(
+#     "b1" = a1 %>% purrr::array_tree() %>% head,
+#     "b2" = 1:length(a1 %>% purrr::array_tree() %>% head)
+#   ),
+#   .num_workers = 4,
+#   .globals_mode = "user",
+#   .re_export = TRUE,
+#   .globals_save_path = paste(tempdir, "/tempdata.rdata", sep = ""),
+#   .intermediate_files_dir = tempdir,
+#   .user_global_objects = c(),
+#   .status_messages_dir = paste(tempdir, sep = ""),
+#   .job_name = "test",
+#   .splicing_order = "unordered",
+#   .f = function(b1, b2) {Sys.sleep(0); return(list(LETTERS[b2]))})
 
 # function to aggregate a bunch of individual numbers into discrete intervals
 numbers_to_intervals <- function(vector_input) {
