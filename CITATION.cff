@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below. (please I'll be so thankful, some of this was actually hard work)"
+authors:
+- family-names: "LIANG"
+  given-names: "ANGELITA"
+  orcid: "https://orcid.org/0000-0002-6907-6834"
+title: "angel_suite"
+version: 1.0.0
+doi: 10.5281/zenodo.1234
+date-released: 2024-07-09
+url: "https://github.com/angel-bee2018/angel_suite"
