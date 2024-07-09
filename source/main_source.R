@@ -55,8 +55,10 @@ round_robin_pmap_callr <- function(
     
   }
   
-  if (system("ulimit -n", intern = TRUE) %>% type.convert(as.is = TRUE) < 65536) {
-    warning(paste("System max. open file limit is less than the recommended 65536. Current limit is set to: ", system("ulimit -n", intern = TRUE), ". To fix this, please re-run R from bash terminal after having set `ulimit -n 65536` to avoid possible errors with large jobs and/or large number of workers/chunks.", sep = ""))
+  if (Sys.info()["sysname"] == "Linux") {
+    if (system("ulimit -n", intern = TRUE) %>% type.convert(as.is = TRUE) < 65536) {
+      warning(paste("System max. open file limit is less than the recommended 65536. Current limit is set to: ", system("ulimit -n", intern = TRUE), ". To fix this, please re-run R from bash terminal after having set `ulimit -n 65536` to avoid possible errors with large jobs and/or large number of workers/chunks.", sep = ""))
+    }
   }
   
   .epoch_time <- as.numeric(Sys.time())*1E5
