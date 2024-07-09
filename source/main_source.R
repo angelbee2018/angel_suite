@@ -120,7 +120,7 @@ round_robin_pmap_callr <- function(
       # recursively traverse the frame stack from the bottom up until we collect everything
       temp_current_frame <- sys.nframe()
       
-      while (length(temp_global_variables_uncollected) > 0 & temp_current_frame > 0) {
+      while (length(temp_global_variables_uncollected) > 0 & temp_current_frame > -1) {
         
         for (j in temp_global_variables_uncollected) {
           
