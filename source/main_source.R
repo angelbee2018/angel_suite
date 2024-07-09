@@ -140,6 +140,7 @@ round_robin_pmap_callr <- function(
       
       if (length(temp_global_variables_uncollected) > 0) {
         warning(paste("Scoping has finished but there remain some uncollected variables: ", paste(temp_global_variables_uncollected, collapse = " , "), "\n"))
+        vector_global_variables <- setdiff(vector_global_variables, temp_global_variables_uncollected)
       }
       
       message("Writing globals to disk")
