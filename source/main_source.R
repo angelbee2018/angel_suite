@@ -172,8 +172,6 @@ round_robin_pmap_callr <- function(
   # preallocate worker list
   list_workers <- list()
   
-  Sys.sleep(60)
-  
   # set up automatic chunking
   if (.chunkify == TRUE) {
     
