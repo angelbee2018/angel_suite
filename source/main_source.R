@@ -104,6 +104,10 @@ round_robin_pmap_callr <- function(
     dir.create(.intermediate_files_dir, recursive = TRUE)
   }
   
+  if (.debug == TRUE) {
+    message(paste(".keep_intermediate_files: ", .keep_intermediate_files, sep = ""))
+  }
+  
   message(paste("Intermediate files will be saved to disk at: ", .intermediate_files_dir, sep = ""))
   
   if (is.null(.status_messages_dir)) {
@@ -655,13 +659,23 @@ round_robin_pmap_callr <- function(
     
   }
   
+  if (.keep_intermediate_files == FALSE) {
+    unlink(list.files(path = .intermediate_files_dir, pattern = paste(.job_name, "_chunk_.*.rds", sep = ""), full.names = TRUE ), recursive = TRUE)
+    unlink(list.files(path = .temp_dir, pattern = paste(.job_name, ".rdata", sep = ""), full.names = TRUE ), recursive = TRUE)
+  }
+  
   # if any error, stop all
   if (any(vector_exit_statuses != 0)) {
     purrr::map(.x = list_workers, .f = ~.x$signal(9))
     stop(print(paste("Exit status failure received on chunks:", paste(names(list_workers)[which(vector_exit_statuses != 0)], collapse = ", "))))
   }
   
-  # after the while loop is done, deal with splicing and socket transfer if we want the object returned immediately
+  rm(list = ls(pattern = "chunk_"))
+  rm(list_workers)
+  
+  cat("\n")
+  
+  # unchunkify
   if (.splicing_order %in% c("ordered", "unordered")) {
     if (.chunkify == TRUE) {
       list_result <- list_result %>% purrr::flatten()
@@ -670,15 +684,6 @@ round_robin_pmap_callr <- function(
   } else {
     return(NULL)
   }
-  
-  if (.keep_intermediate_files == FALSE) {
-    unlink(list.files(path = .intermediate_files_dir, pattern = paste(.job_name, "_chunk_.*.rds", sep = ""), full.names = TRUE ), recursive = TRUE)
-  }
-  
-  rm(list = ls(pattern = "chunk_"))
-  rm(list_workers)
-  
-  cat("\n")
   
 }
 
