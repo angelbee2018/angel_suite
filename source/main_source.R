@@ -34,7 +34,7 @@ round_robin_pmap_callr <- function(
     .l, .f, 
     .num_workers = 1, .no_chunks = 1, .splicing_order = "ordered", 
     .job_name = NULL, 
-    .globals_save_path = NULL, .globals_save_compress = TRUE, .re_export = TRUE, .globals_mode = "auto", .user_global_objects = NULL, 
+    .globals_save_dir = NULL, .globals_save_compress = TRUE, .re_export = TRUE, .globals_mode = "auto", .user_global_objects = NULL, 
     .intermediate_files_dir = NULL, .keep_intermediate_files = FALSE, 
     .status_messages_dir = NULL, .progress = TRUE,
     .debug = FALSE, ...) {
@@ -46,7 +46,7 @@ round_robin_pmap_callr <- function(
   # .num_workers = 20
   # .globals_mode = "user"
   # .re_export = TRUE
-  # .globals_save_path = paste(tempdir(), "/tempdata.rdata", sep = "")
+  # .globals_save_dir = paste(tempdir(), "/tempdata.rdata", sep = "")
   # .intermediate_files_dir = tempdir()
   # .user_global_objects = c()
   # .status_messages_dir = paste(tempdir(), sep = "")
@@ -78,14 +78,14 @@ round_robin_pmap_callr <- function(
   
   message(paste("Job name: ", .job_name, sep = ""))
   
-  if (is.null(.globals_save_path)) {
-    .globals_save_path <- paste(.temp_dir, .job_name, ".rdata", sep = "")
+  if (is.null(.globals_save_dir)) {
+    .globals_save_dir <- .temp_dir
   }
-  if (!dir.exists(.globals_save_path %>% gsub(pattern = "(.*)\\/([^\\/]+)$", replacement = "\\1"))) {
-    dir.create(.globals_save_path %>% gsub(pattern = "(.*)\\/([^\\/]+)$", replacement = "\\1"), recursive = TRUE)
+  if (!dir.exists(.globals_save_dir)) {
+    dir.create(.globals_save_dir, recursive = TRUE)
   }
   
-  message(paste("Globals will be saved to disk at: ", .globals_save_path, sep = ""))
+  message(paste("Globals will be saved to disk at: ", .globals_save_dir, sep = ""))
   
   if (is.null(.intermediate_files_dir)) {
     .intermediate_files_dir <- .temp_dir
@@ -119,7 +119,7 @@ round_robin_pmap_callr <- function(
   }
   
   # save the current env into temp path
-  if (.re_export == FALSE & file.exists(.globals_save_path)) {
+  if (.re_export == FALSE & dir.exists(.globals_save_dir)) {
     
     message("Temp object data file found. Will load that instead of re-exporting")
     
@@ -127,7 +127,7 @@ round_robin_pmap_callr <- function(
     
     if (.globals_mode == "global") {
       message("Writing globals to disk")
-      save.image(file = .globals_save_path, compress = .globals_save_compress)
+      save.image(file = .globals_save_dir, compress = .globals_save_compress)
     } else if (.globals_mode == "auto") {
       
       vector_global_variables <- c(globals::findGlobals(.f), .user_global_objects)
@@ -240,10 +240,10 @@ round_robin_pmap_callr <- function(
       }
       
       message("Writing globals to disk")
-      # save(list = vector_global_variables, file = .globals_save_path, compress = .globals_save_compress)
+      # save(list = vector_global_variables, file = .globals_save_dir, compress = .globals_save_compress)
       
       for (i in vector_global_variables) {
-        qs::qsave(x = get(i), file = paste(.intermediate_files_dir, i, ".qs"))
+        qs::qsave(x = get(i), file = paste(.globals_save_dir, i, ".qs", sep = ""))
       }
       
     }
@@ -251,7 +251,7 @@ round_robin_pmap_callr <- function(
   }
   
   # END SCOPING ###
-
+  
   # check if all the list elements are of equal length
   map_length <- unique(unlist(purrr::map(.x = .l, .f = ~length(.x))))
   
@@ -281,7 +281,7 @@ round_robin_pmap_callr <- function(
   map_length <- .no_chunks
   
   # END CHUNKING ###
-    
+  
   message("Commencing computation")
   
   # initial allocation of tasks to maximum number of workers
@@ -291,15 +291,15 @@ round_robin_pmap_callr <- function(
     .l_current <- purrr::map(.x = .l, .f = ~.x[parallel::splitIndices(nx = length(.l[[1]]), ncl = .no_chunks)[[..i]]])
     
     # define function to be fun
-    function_to_run <- function(.l_current, .f, .globals_save_path, .intermediate_files_dir, .job_name, .progress, .debug, vector_global_variables, vector_global_packages, ..i) {
+    function_to_run <- function(.l_current, .f, .globals_save_dir, .intermediate_files_dir, .job_name, .progress, .debug, vector_global_variables, vector_global_packages, ..i) {
       
       lapply(vector_global_packages, library, character.only = TRUE)
       
       for (i in vector_global_variables) {
-        qs::qread(file = paste(.intermediate_files_dir, i, ".qs"))
+        assign(x = i, value = qs::qread(file = paste(.globals_save_dir, i, ".qs", sep = "")), envir = .GlobalEnv)
       }
       
-      # load(file = .globals_save_path, envir = .GlobalEnv)
+      # load(file = .globals_save_dir, envir = .GlobalEnv)
       
       if (.debug == TRUE) {
         print("ls before pmap")
@@ -312,7 +312,8 @@ round_robin_pmap_callr <- function(
         .progress = .progress
       )
       
-      saveRDS(object = obj, file = paste(.intermediate_files_dir, "/", .job_name, "_chunk_", ..i, ".rds", sep = ""))
+      # saveRDS(object = obj, file = paste(.intermediate_files_dir, "/", .job_name, "_chunk_", ..i, ".rds", sep = ""))
+      qs::qsave(x = obj, file = paste(.intermediate_files_dir, "/", .job_name, "_chunk_", ..i, ".qs", sep = ""))
       
       return(NULL)
       
@@ -322,8 +323,8 @@ round_robin_pmap_callr <- function(
     assign(
       x = paste("chunk_", ..i, sep = ""), 
       value = callr::r_bg(
-        cmdargs	= c(.globals_save_path, ..i),
-        args = list(".l_current" = .l_current, ".f" = .f, ".globals_save_path" = .globals_save_path, ".intermediate_files_dir" = .intermediate_files_dir, ".job_name" = .job_name, ".progress" = .progress, ".debug" = .debug, "vector_global_variables" = vector_global_variables, "vector_global_packages" = vector_global_packages, "..i" = ..i),
+        cmdargs	= c(.globals_save_dir, ..i),
+        args = list(".l_current" = .l_current, ".f" = .f, ".globals_save_dir" = .globals_save_dir, ".intermediate_files_dir" = .intermediate_files_dir, ".job_name" = .job_name, ".progress" = .progress, ".debug" = .debug, "vector_global_variables" = vector_global_variables, "vector_global_packages" = vector_global_packages, "..i" = ..i),
         func = function_to_run
       )
     )
@@ -412,15 +413,15 @@ round_robin_pmap_callr <- function(
           .l_current <- purrr::map(.x = .l, .f = ~.x[parallel::splitIndices(nx = length(.l[[1]]), ncl = .no_chunks)[[..i]]])
           
           # define function to be fun
-          function_to_run <- function(.l_current, .f, .globals_save_path, .intermediate_files_dir, .job_name, .progress, .debug, vector_global_variables, vector_global_packages, ..i) {
+          function_to_run <- function(.l_current, .f, .globals_save_dir, .intermediate_files_dir, .job_name, .progress, .debug, vector_global_variables, vector_global_packages, ..i) {
             
             lapply(vector_global_packages, library, character.only = TRUE)
             
             for (i in vector_global_variables) {
-              qs::qread(file = paste(.intermediate_files_dir, i, ".qs"))
+              assign(x = i, value = qs::qread(file = paste(.globals_save_dir, i, ".qs", sep = "")), envir = .GlobalEnv)
             }
             
-            # load(file = .globals_save_path, envir = .GlobalEnv)
+            # load(file = .globals_save_dir, envir = .GlobalEnv)
             
             if (.debug == TRUE) {
               print("ls before pmap")
@@ -433,7 +434,8 @@ round_robin_pmap_callr <- function(
               .progress = .progress
             )
             
-            saveRDS(object = obj, file = paste(.intermediate_files_dir, "/", .job_name, "_chunk_", ..i, ".rds", sep = ""))
+            # saveRDS(object = obj, file = paste(.intermediate_files_dir, "/", .job_name, "_chunk_", ..i, ".rds", sep = ""))
+            qs::qsave(x = obj, file = paste(.intermediate_files_dir, "/", .job_name, "_chunk_", ..i, ".qs", sep = ""))
             
             return(NULL)
             
@@ -443,8 +445,8 @@ round_robin_pmap_callr <- function(
           assign(
             x = paste("chunk_", ..i, sep = ""), 
             value = callr::r_bg(
-              cmdargs	= c(.globals_save_path, ..i),
-              args = list(".l_current" = .l_current, ".f" = .f, ".globals_save_path" = .globals_save_path, ".intermediate_files_dir" = .intermediate_files_dir, ".job_name" = .job_name, ".progress" = .progress, ".debug" = .debug, "vector_global_variables" = vector_global_variables, "vector_global_packages" = vector_global_packages, "..i" = ..i),
+              cmdargs	= c(.globals_save_dir, ..i),
+              args = list(".l_current" = .l_current, ".f" = .f, ".globals_save_dir" = .globals_save_dir, ".intermediate_files_dir" = .intermediate_files_dir, ".job_name" = .job_name, ".progress" = .progress, ".debug" = .debug, "vector_global_variables" = vector_global_variables, "vector_global_packages" = vector_global_packages, "..i" = ..i),
               func = function_to_run
             )
           )
@@ -527,13 +529,13 @@ round_robin_pmap_callr <- function(
               } else {
                 vector_chunks_to_be_spliced <- integer(0)
               }
-             
+              
               if (.debug == TRUE) {
                 print("vector_chunks_to_be_spliced 2")
                 print(vector_chunks_to_be_spliced)
                 global_vector_chunks_to_be_spliced <<- vector_chunks_to_be_spliced
               }
-               
+              
             }
             
           }
@@ -545,7 +547,8 @@ round_robin_pmap_callr <- function(
               .x = vector_chunks_to_be_spliced,
               .f = function(a1) {
                 
-                chunk <- readRDS(file = paste(.intermediate_files_dir, "/", .job_name, "_chunk_", a1, ".rds", sep = ""))
+                # chunk <- readRDS(file = paste(.intermediate_files_dir, "/", .job_name, "_chunk_", a1, ".rds", sep = ""))
+                chunk <- qs::qread(file = paste(.intermediate_files_dir, "/", .job_name, "_chunk_", a1, ".qs", sep = ""))
                 
                 return(chunk)
                 
@@ -586,8 +589,9 @@ round_robin_pmap_callr <- function(
   }
   
   if (.keep_intermediate_files == FALSE) {
-    unlink(list.files(path = .intermediate_files_dir, pattern = paste(.job_name, "_chunk_.*.rds", sep = ""), full.names = TRUE ), recursive = TRUE)
-    unlink(list.files(path = .temp_dir, pattern = paste(.job_name, ".rdata", sep = ""), full.names = TRUE ), recursive = TRUE)
+    # unlink(list.files(path = .intermediate_files_dir, pattern = paste(.job_name, "_chunk_.*.rds", sep = ""), full.names = TRUE ), recursive = TRUE)
+    # unlink(list.files(path = .temp_dir, pattern = paste(.job_name, ".rdata", sep = ""), full.names = TRUE ), recursive = TRUE)
+    unlink(list.files(path = .temp_dir, pattern = ".*.qs", full.names = TRUE ), recursive = TRUE)
   }
   
   # one last output write
