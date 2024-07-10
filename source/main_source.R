@@ -25,7 +25,6 @@
 # .keep_intermediate_files: TRUE: keep files written to .intermediate_files_dir. FALSE: remove after done. NOTE: this will alway delete files when this script exits gracefully. use .debug to keep intermediate files no matter what.
 # .debug: TRUE: keep and report EVERYTHING. DEFAULT: FALSE
 
-
 round_robin_pmap_callr <- function(
     .l, .f, 
     .num_workers = 1, .no_chunks = 1, .splicing_order = "ordered", 
@@ -110,6 +109,7 @@ round_robin_pmap_callr <- function(
   vector_global_packages <- globals::packagesOf(globals::globalsOf(.f, mustExist = FALSE)) %>% setdiff(., c("base", "rlang"))
   
   if (.debug == TRUE) {
+    print("vector_global_packages at the surface level of the function")
     print(vector_global_packages)
   }
   
@@ -160,10 +160,74 @@ round_robin_pmap_callr <- function(
         
       }
       
+      # deal with the special case of nested function definitions
+      vector_all_function_names_in_environment <- lsf.str() %>% as.character
+      
+      temp_vector_names_of_newly_discovered_nested_functions_for_inspection <- vector_all_function_names_in_environment
+      temp_vector_names_of_newly_discovered_nested_functions_for_inspection0 <- character()
+      
+      # recursively inspect functions until there are no more functions within the functions
+      # nested packages -> added to global vector of package names
+      # nested functions -> copied into environment using `dynGet` + uncollected function names are added to the uncollected list + added to vector_global_variables + flagged for further internal inspection
+      while (length(temp_vector_names_of_newly_discovered_nested_functions_for_inspection) > 0) {
+        
+        for (temp_function_to_inspect in purrr::map(.x = temp_vector_names_of_newly_discovered_nested_functions_for_inspection, .f = ~get(.x))) {
+          
+          vector_global_packages <- c(vector_global_packages, globals::packagesOf(globals::globalsOf(temp_function_to_inspect, mustExist = FALSE)) %>% setdiff(., c("base", "rlang"))) %>% unique
+          
+          temp_vector_names_of_newly_discovered_nested_functions_for_inspection0 <- c(temp_vector_names_of_newly_discovered_nested_functions_for_inspection0, setdiff(globals::findGlobals(temp_function_to_inspect), temp_global_variables_uncollected))
+          
+        }
+        
+        # flag for further internal inspection
+        temp_vector_names_of_newly_discovered_nested_functions_for_inspection <- temp_vector_names_of_newly_discovered_nested_functions_for_inspection0
+        
+        # copy into env using dynGet
+        # recursively traverse the frame stack from the bottom up until we collect everything
+        temp_current_frame <- sys.nframe()
+        
+        while (length(temp_vector_names_of_newly_discovered_nested_functions_for_inspection0) > 0 & temp_current_frame > -1) {
+          
+          for (j in temp_vector_names_of_newly_discovered_nested_functions_for_inspection0) {
+            
+            assign(x = j, value = dynGet(x = j, ifnotfound = NULL, minframe = temp_current_frame))
+            
+            if (.debug == TRUE) {
+              message("temp_current_frame: ", temp_current_frame)
+              message(j)
+              print(get(x = j))
+            }
+            
+            if (is.null(get(x = j)) == TRUE) {
+              rm(list = j)
+            }
+            
+          }
+          
+          temp_vector_names_of_newly_discovered_nested_functions_for_inspection0 <- setdiff(temp_vector_names_of_newly_discovered_nested_functions_for_inspection0, ls())
+          
+          temp_current_frame <- temp_current_frame - 1
+          
+        }
+        
+        # uncollected function names are added to the global uncollected list
+        temp_global_variables_uncollected <- c(temp_global_variables_uncollected, temp_vector_names_of_newly_discovered_nested_functions_for_inspection0) %>% unique
+        
+        # flag for further internal inspection (update to have only collected and loaded functions)
+        temp_vector_names_of_newly_discovered_nested_functions_for_inspection <- intersect(temp_vector_names_of_newly_discovered_nested_functions_for_inspection, lsf.str() %>% as.character)
+        
+        # collected functions added to vector_global_variables
+        vector_global_variables <- c(vector_global_variables, temp_vector_names_of_newly_discovered_nested_functions_for_inspection) %>% unique
+        
+        temp_vector_names_of_newly_discovered_nested_functions_for_inspection0 <- character()
+        
+      }
+      
       if (length(temp_global_variables_uncollected) > 0) {
         warning(paste("Scoping has finished but there remain some uncollected variables: ", paste(temp_global_variables_uncollected, collapse = " , "), "\n"))
         
         if (.debug == TRUE) {
+          message("all variables in environment right before writing to disk")
           print(ls())
         }
         
@@ -437,7 +501,7 @@ round_robin_pmap_callr <- function(
                 print("index_last_consecutive")
                 print(index_last_consecutive)
                 
-                global_index_last_consecutive <<- index_last_consecutivef
+                global_index_last_consecutive <<- index_last_consecutive
               }
               
               if (length(index_last_consecutive) > 0 & is.na(index_last_consecutive) == FALSE) {
