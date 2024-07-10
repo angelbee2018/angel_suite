@@ -17,6 +17,7 @@
 # .splicing_order: affects the way in which the result chunks from workers are stitched back together into a list. two personalities are permitted using the option : 1. ordered - return results in order (at each tick, check if we have consecutive saved files ready before splicing them into a single list); 2. unordered - return list elements as they arrive. 3. any other option: does not return anything, which is useful if you just want to save results to disk. DEFAULT: "ordered"
 
 # NOTE: YOU NEED TO SPECIFY YOUR OWN NUMBER OF CHUNKS AND WORKERS OTHERWISE IT WILL JUST RUN IN SEQUENTIAL. I DON'T KNOW WHAT YOU WANT.
+## TYPICAL USAGE: at the bare minimum, just specify .num_workers and .no_chunks and that's all it needs to run!
 
 # .job_name: the name of the job - underscores are automatically added on both sides filenames. DEFAULT: epoch time `as.numeric(Sys.time())` at the time of execution
 # .globals_save_path/.temp_path (D): save location of env variables from parent process as .rdata. DEFAULT: paste(tempdir(), "/", as.numeric(Sys.time()), ".rdata", sep = "")
