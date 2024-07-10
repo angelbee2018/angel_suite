@@ -7,9 +7,9 @@
 
 # .l, .f: purrr::pmap arguments
 # .num_workers: number of parallel processes to use. this is a maximum value. will never exceed number of chunks. DEFAULT: 1
-# .chunkify: do you want the .l list to be divided evenly into chunks. chunks will be calculated in their own parallel process in a round robin fashion. DEFAULT: TRUE
-# .no_chunks: how many chunks do you want. if .chunkify = FALSE, .no_chunks is equivalent to the length of .l. DEFAULT: 1
-# .splicing_order: affects the way in which the result chunks from workers are stitched back together into a list. two personalities are permitted using the option : 1. ordered - return results in order (at each tick, check if we have consecutive saved files ready before splicing them into a single list); 2. unordered - return list elements as they arrive. DEFAULT: "ordered"
+# chunks: the .l list is divided evenly into chunks. chunks will be calculated in their own parallel process in a round robin fashion.
+# .no_chunks: how many chunks do you want, from 1 to the length of .l. DEFAULT: 1
+# .splicing_order: affects the way in which the result chunks from workers are stitched back together into a list. two personalities are permitted using the option : 1. ordered - return results in order (at each tick, check if we have consecutive saved files ready before splicing them into a single list); 2. unordered - return list elements as they arrive. 3. any other option: does not return anything, which is useful if you just want to save results to disk. DEFAULT: "ordered"
 
 # NOTE: YOU NEED TO SPECIFY YOUR OWN NUMBER OF CHUNKS AND WORKERS OTHERWISE IT WILL JUST RUN IN SEQUENTIAL. I DON'T KNOW WHAT YOU WANT.
 
@@ -17,11 +17,14 @@
 # .globals_save_path/.temp_path (D): save location of env variables from parent process as .rdata. DEFAULT: paste(tempdir(), "/", as.numeric(Sys.time()), ".rdata", sep = "")
 # .globals_save_compress: compress the .rdata object or no. DEFAULT: TRUE
 # .re_export: if set to FALSE, if .globals_save_path already exist, then do not recollect and resave env variables from parent process. if TRUE, env variables will always overwrite existing file on disk
-# .globals_mode: set this to control how globals are exported from the parent process. "auto": the script will attempt to automatically grab a necessary variables and packages by performing a similar "black magic" ritual as future/furrr and pray it works (oh God help us). "global": parent process will save list = ls(). "user": only export a user defined character vector of object names as specified in .user_global_objects
+# .globals_mode: set this to control how globals are exported from the parent process. "auto": the script will attempt to automatically grab a necessary variables and packages by performing a similar "black magic" ritual as future/furrr and pray it works (oh God help us). "global": parent process will save list = ls().
+# .user_global_objects: only for use with "auto" .globals_mode. A character vector of additional variables you want to be exported.
 # .intermediate_files_dir/.temp_dir (D): folder location of all intermediate files for the computation. DEFAULT: tempdir()
 # .status_messages_dir: folder location of status messages. DEFAULT: tempdir()
+# .progress: purrr parameter. DEFAULT: TRUE
 # .keep_intermediate_files: TRUE: keep files written to .intermediate_files_dir. FALSE: remove after done. NOTE: this will alway delete files when this script exits gracefully. use .debug to keep intermediate files no matter what.
 # .debug: TRUE: keep and report EVERYTHING. DEFAULT: FALSE
+
 
 round_robin_pmap_callr <- function(
     .l, .f, 
