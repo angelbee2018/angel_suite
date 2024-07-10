@@ -1,9 +1,13 @@
 # This document contains all the amazing scripts necessary to do regular bioinformatics manipulations.
 # PLEASE CITE ME BECAUSE THIS WAS KIND OF TOUGH WORK 🥺
 # For the citation information CFF file, please visit: https://github.com/angel-bee2018/angel_suite/blob/master/CITATION.cff
+## no warranty or guarantee is provided for any failures or losses associated with any use of content in this document. I am just sharing this because somemone else might need something like this, and I've done the hard work already to make it a reality.
 
 # simple round robin callr
-## YA NO ES SENCILLO
+## A wrapper for `callr:r_bg` that implements parallel computation for `purrr::pmap`. 
+## it functions exactly like `furrr` except intermediate results are written to disk, with no chance of memory leakage.
+## how it works: <your list> -> automatically inspected for required variables and packages -> variables saved to a temporary file -> r_bg called -> socket transfer of function arguments from parent R process to child R process -> packages automatically loaded in child -> temporary file read back into child -> the real computation proceeds -> list is spliced back together ON THE FLY in the parent process
+## this function works best when a) there are large variables (1GB+) referenced in the function, or b) there is extreme memory leakage when using `furrr`/`future`, `biocparallel` or `parallel`, or c) there are recursive multithreading calls inside multithreading child processes, or d) the parent process is slow because there are alot of variables stored in the global environment, or e) the parent process feels like it needs a fresh start but that's not possible.
 
 # .l, .f: purrr::pmap arguments
 # .num_workers: number of parallel processes to use. this is a maximum value. will never exceed number of chunks. DEFAULT: 1
