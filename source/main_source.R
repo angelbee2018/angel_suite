@@ -55,7 +55,7 @@ round_robin_pmap_callr <- function(
   # .f = function(b1) {set.seed(b1);Sys.sleep(runif(n = 1, min = 10, max = 15)); return(list(LETTERS[b1]))}
   ###########
   
-  for (i in c("globals", "callr", "purrr", "parallel", "magrittr", "utils", "tibble", "dplyr", "lubridate")) { 
+  for (i in c("globals", "callr", "purrr", "parallel", "magrittr", "utils", "tibble", "dplyr", "lubridate", "qs")) { 
     
     if (require(i, character.only = TRUE) == FALSE) {
       stop(paste("Package \"", i, "\" not found. Please install using `install.packages` or `BiocManager::install`", sep = ""))
@@ -240,7 +240,12 @@ round_robin_pmap_callr <- function(
       }
       
       message("Writing globals to disk")
-      save(list = vector_global_variables, file = .globals_save_path, compress = .globals_save_compress)
+      # save(list = vector_global_variables, file = .globals_save_path, compress = .globals_save_compress)
+      
+      for (i in vector_global_variables) {
+        qs::qsave(x = get(i), file = paste(.intermediate_files_dir, i, ".qs"))
+      }
+      
     }
     
   }
@@ -286,11 +291,15 @@ round_robin_pmap_callr <- function(
     .l_current <- purrr::map(.x = .l, .f = ~.x[parallel::splitIndices(nx = length(.l[[1]]), ncl = .no_chunks)[[..i]]])
     
     # define function to be fun
-    function_to_run <- function(.l_current, .f, .globals_save_path, .intermediate_files_dir, .job_name, .progress, .debug, vector_global_packages, ..i) {
+    function_to_run <- function(.l_current, .f, .globals_save_path, .intermediate_files_dir, .job_name, .progress, .debug, vector_global_variables, vector_global_packages, ..i) {
       
       lapply(vector_global_packages, library, character.only = TRUE)
       
-      load(file = .globals_save_path, envir = .GlobalEnv)
+      for (i in vector_global_variables) {
+        qs::qread(file = paste(.intermediate_files_dir, i, ".qs"))
+      }
+      
+      # load(file = .globals_save_path, envir = .GlobalEnv)
       
       if (.debug == TRUE) {
         print("ls before pmap")
@@ -314,7 +323,7 @@ round_robin_pmap_callr <- function(
       x = paste("chunk_", ..i, sep = ""), 
       value = callr::r_bg(
         cmdargs	= c(.globals_save_path, ..i),
-        args = list(".l_current" = .l_current, ".f" = .f, ".globals_save_path" = .globals_save_path, ".intermediate_files_dir" = .intermediate_files_dir, ".job_name" = .job_name, ".progress" = .progress, ".debug" = .debug, "vector_global_packages" = vector_global_packages, "..i" = ..i),
+        args = list(".l_current" = .l_current, ".f" = .f, ".globals_save_path" = .globals_save_path, ".intermediate_files_dir" = .intermediate_files_dir, ".job_name" = .job_name, ".progress" = .progress, ".debug" = .debug, "vector_global_variables" = vector_global_variables, "vector_global_packages" = vector_global_packages, "..i" = ..i),
         func = function_to_run
       )
     )
@@ -403,11 +412,15 @@ round_robin_pmap_callr <- function(
           .l_current <- purrr::map(.x = .l, .f = ~.x[parallel::splitIndices(nx = length(.l[[1]]), ncl = .no_chunks)[[..i]]])
           
           # define function to be fun
-          function_to_run <- function(.l_current, .f, .globals_save_path, .intermediate_files_dir, .job_name, .progress, .debug, vector_global_packages, ..i) {
+          function_to_run <- function(.l_current, .f, .globals_save_path, .intermediate_files_dir, .job_name, .progress, .debug, vector_global_variables, vector_global_packages, ..i) {
             
             lapply(vector_global_packages, library, character.only = TRUE)
             
-            load(file = .globals_save_path, envir = .GlobalEnv)
+            for (i in vector_global_variables) {
+              qs::qread(file = paste(.intermediate_files_dir, i, ".qs"))
+            }
+            
+            # load(file = .globals_save_path, envir = .GlobalEnv)
             
             if (.debug == TRUE) {
               print("ls before pmap")
@@ -431,7 +444,7 @@ round_robin_pmap_callr <- function(
             x = paste("chunk_", ..i, sep = ""), 
             value = callr::r_bg(
               cmdargs	= c(.globals_save_path, ..i),
-              args = list(".l_current" = .l_current, ".f" = .f, ".globals_save_path" = .globals_save_path, ".intermediate_files_dir" = .intermediate_files_dir, ".job_name" = .job_name, ".progress" = .progress, ".debug" = .debug, "vector_global_packages" = vector_global_packages, "..i" = ..i),
+              args = list(".l_current" = .l_current, ".f" = .f, ".globals_save_path" = .globals_save_path, ".intermediate_files_dir" = .intermediate_files_dir, ".job_name" = .job_name, ".progress" = .progress, ".debug" = .debug, "vector_global_variables" = vector_global_variables, "vector_global_packages" = vector_global_packages, "..i" = ..i),
               func = function_to_run
             )
           )
