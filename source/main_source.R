@@ -27,9 +27,9 @@ round_robin_pmap_callr <- function(
     .l, .f, 
     .num_workers = 1, .chunkify = TRUE, .no_chunks = 1, .splicing_order = "ordered", 
     .job_name = NULL, 
-    .globals_save_path = NULL, .globals_save_compress = TRUE, .re_export = TRUE, .globals_mode = "auto", .user_global_objects, 
+    .globals_save_path = NULL, .globals_save_compress = TRUE, .re_export = TRUE, .globals_mode = "auto", .user_global_objects = NULL, 
     .intermediate_files_dir = NULL, .keep_intermediate_files = FALSE, 
-    .status_messages_dir = NULL, 
+    .status_messages_dir = NULL, .progress = TRUE,
     .debug = FALSE, ...) {
   
   # DEBUG ###
@@ -105,15 +105,28 @@ round_robin_pmap_callr <- function(
   # SCOPING ###
   
   vector_global_packages <- globals::packagesOf(globals::globalsOf(.f, mustExist = FALSE)) %>% setdiff(., c("base", "rlang"))
-
+  
+  if (.debug == TRUE) {
+    print(vector_global_packages)
+  }
+  
   # save the current env into temp path
   if (.re_export == FALSE & file.exists(.globals_save_path)) {
+    
     message("Temp object data file found. Will load that instead of re-exporting")
+    
   } else {
     
-    if (.globals_mode == "auto") {
+    if (.globals_mode == "global") {
+      message("Writing globals to disk")
+      save.image(file = .globals_save_path, compress = .globals_save_compress)
+    } else if (.globals_mode == "auto") {
       
-      vector_global_variables <- globals::findGlobals(.f)
+      vector_global_variables <- c(globals::findGlobals(.f), .user_global_objects)
+      
+      if (.debug == TRUE) {
+        print(vector_global_variables)
+      }
       
       temp_global_variables_uncollected <- setdiff(vector_global_variables, ls())
       
@@ -125,6 +138,12 @@ round_robin_pmap_callr <- function(
         for (j in temp_global_variables_uncollected) {
           
           assign(x = j, value = dynGet(x = j, ifnotfound = NULL, minframe = temp_current_frame))
+          
+          if (.debug == TRUE) {
+            message("temp_current_frame: ", temp_current_frame)
+            message(j)
+            print(get(x = j))
+          }
           
           if (is.null(get(x = j)) == TRUE) {
             rm(list = j)
@@ -140,18 +159,16 @@ round_robin_pmap_callr <- function(
       
       if (length(temp_global_variables_uncollected) > 0) {
         warning(paste("Scoping has finished but there remain some uncollected variables: ", paste(temp_global_variables_uncollected, collapse = " , "), "\n"))
+        
+        if (.debug == TRUE) {
+          print(ls())
+        }
+        
         vector_global_variables <- setdiff(vector_global_variables, temp_global_variables_uncollected)
       }
       
       message("Writing globals to disk")
       save(list = vector_global_variables, file = .globals_save_path, compress = .globals_save_compress)
-      
-    } else if (.globals_mode == "global") {
-      message("Writing globals to disk")
-      save.image(file = .globals_save_path, compress = .globals_save_compress)
-    } else if (.globals_mode == "user") {
-      message("Writing globals to disk")
-      save(list = .user_global_objects, file = .globals_save_path, compress = .globals_save_compress)
     }
     
   }
@@ -203,17 +220,21 @@ round_robin_pmap_callr <- function(
       if (.splicing_order %in% c("ordered", "unordered")) {
         
         # define function to be fun
-        function_to_run <- function(.l_current, .f, .globals_save_path, .intermediate_files_dir, .job_name, ..i) {
+        function_to_run <- function(.l_current, .f, .globals_save_path, .intermediate_files_dir, .job_name, .progress, .debug, vector_global_packages, ..i) {
+          
+          lapply(vector_global_packages, library, character.only = TRUE)
           
           load(file = .globals_save_path, envir = .GlobalEnv)
           
-          print("ls before pmap")
-          print(ls())
+          if (.debug == TRUE) {
+            print("ls before pmap")
+            print(ls())
+          }
           
           obj <- purrr::pmap(
             .l = .l_current,
             .f = .f,
-            .progress = TRUE
+            .progress = .progress
           )
           
           saveRDS(object = obj, file = paste(.intermediate_files_dir, "/", .job_name, "_chunk_", ..i, ".rds", sep = ""))
@@ -227,8 +248,7 @@ round_robin_pmap_callr <- function(
           x = paste("chunk_", ..i, sep = ""), 
           value = callr::r_bg(
             cmdargs	= c(.globals_save_path, ..i),
-            package = vector_global_packages,
-            args = list(".l_current" = .l_current, ".f" = .f, ".globals_save_path" = .globals_save_path, ".intermediate_files_dir" = .intermediate_files_dir, ".job_name" = .job_name, "..i" = ..i),
+            args = list(".l_current" = .l_current, ".f" = .f, ".globals_save_path" = .globals_save_path, ".intermediate_files_dir" = .intermediate_files_dir, ".job_name" = .job_name, ".progress" = .progress, ".debug" = .debug, "vector_global_packages" = vector_global_packages, "..i" = ..i),
             func = function_to_run
           )
         )
@@ -236,14 +256,16 @@ round_robin_pmap_callr <- function(
       } else {
         
         # define function to be fun
-        function_to_run <- function(.l_current, .f, .globals_save_path, .intermediate_files_dir, .job_name, ..i) {
+        function_to_run <- function(.l_current, .f, .globals_save_path, .intermediate_files_dir, .job_name, .progress, .debug, vector_global_packages, ..i) {
+          
+          lapply(vector_global_packages, library, character.only = TRUE)
           
           load(file = .globals_save_path)
           
           obj <- purrr::pmap(
             .l = .l_current,
             .f = .f,
-            .progress = TRUE
+            .progress = .progress
           )
           
           return(NULL)
@@ -255,8 +277,7 @@ round_robin_pmap_callr <- function(
           x = paste("chunk_", ..i, sep = ""), 
           value = callr::r_bg(
             cmdargs	= c(.globals_save_path, ..i),
-            package = vector_global_packages,
-            args = list(".l_current" = .l_current, ".f" = .f, ".globals_save_path" = .globals_save_path, ".intermediate_files_dir" = .intermediate_files_dir, ".job_name" = .job_name, "..i" = ..i),
+            args = list(".l_current" = .l_current, ".f" = .f, ".globals_save_path" = .globals_save_path, ".intermediate_files_dir" = .intermediate_files_dir, ".job_name" = .job_name, ".progress" = .progress, ".debug" = .debug, "vector_global_packages" = vector_global_packages, "..i" = ..i),
             func = function_to_run
           )
         )
@@ -287,7 +308,6 @@ round_robin_pmap_callr <- function(
           x = paste("chunk_", ..i, sep = ""), 
           value = callr::r_bg(
             cmdargs	= c(.globals_save_path, ..i),
-            package = vector_global_packages,
             args = list("f" = function_current_instance),
             func = function_to_run
           )
@@ -300,7 +320,6 @@ round_robin_pmap_callr <- function(
           x = paste("chunk_", ..i, sep = ""), 
           value = callr::r_bg(
             cmdargs	= c(.globals_save_path, ..i),
-            package = vector_global_packages,
             func = function_to_run
           )
         )
@@ -400,17 +419,21 @@ round_robin_pmap_callr <- function(
             if (.splicing_order %in% c("ordered", "unordered")) {
               
               # define function to be fun
-              function_to_run <- function(.l_current, .f, .globals_save_path, .intermediate_files_dir, .job_name, ..i) {
+              function_to_run <- function(.l_current, .f, .globals_save_path, .intermediate_files_dir, .job_name, .progress, .debug, vector_global_packages, ..i) {
+                
+                lapply(vector_global_packages, library, character.only = TRUE)
                 
                 load(file = .globals_save_path, envir = .GlobalEnv)
                 
-                print("ls before pmap")
-                print(ls())
+                if (.debug == TRUE) {
+                  print("ls before pmap")
+                  print(ls())
+                }
                 
                 obj <- purrr::pmap(
                   .l = .l_current,
                   .f = .f,
-                  .progress = TRUE
+                  .progress = .progress
                 )
                 
                 saveRDS(object = obj, file = paste(.intermediate_files_dir, "/", .job_name, "_chunk_", ..i, ".rds", sep = ""))
@@ -424,8 +447,7 @@ round_robin_pmap_callr <- function(
                 x = paste("chunk_", ..i, sep = ""), 
                 value = callr::r_bg(
                   cmdargs	= c(.globals_save_path, ..i),
-                  package = vector_global_packages,
-                  args = list(".l_current" = .l_current, ".f" = .f, ".globals_save_path" = .globals_save_path, ".intermediate_files_dir" = .intermediate_files_dir, ".job_name" = .job_name, "..i" = ..i),
+                  args = list(".l_current" = .l_current, ".f" = .f, ".globals_save_path" = .globals_save_path, ".intermediate_files_dir" = .intermediate_files_dir, ".job_name" = .job_name, ".progress" = .progress, ".debug" = .debug, "vector_global_packages" = vector_global_packages, "..i" = ..i),
                   func = function_to_run
                 )
               )
@@ -433,14 +455,16 @@ round_robin_pmap_callr <- function(
             } else {
               
               # define function to be fun
-              function_to_run <- function(.l_current, .f, .globals_save_path, .intermediate_files_dir, .job_name, ..i) {
+              function_to_run <- function(.l_current, .f, .globals_save_path, .intermediate_files_dir, .job_name, .progress, .debug, vector_global_packages, ..i) {
+                
+                lapply(vector_global_packages, library, character.only = TRUE)
                 
                 load(file = .globals_save_path)
                 
                 obj <- purrr::pmap(
                   .l = .l_current,
                   .f = .f,
-                  .progress = TRUE
+                  .progress = .progress
                 )
                 
                 return(NULL)
@@ -452,8 +476,7 @@ round_robin_pmap_callr <- function(
                 x = paste("chunk_", ..i, sep = ""), 
                 value = callr::r_bg(
                   cmdargs	= c(.globals_save_path, ..i),
-                  package = vector_global_packages,
-                  args = list(".l_current" = .l_current, ".f" = .f, ".globals_save_path" = .globals_save_path, ".intermediate_files_dir" = .intermediate_files_dir, ".job_name" = .job_name, "..i" = ..i),
+                  args = list(".l_current" = .l_current, ".f" = .f, ".globals_save_path" = .globals_save_path, ".intermediate_files_dir" = .intermediate_files_dir, ".job_name" = .job_name, ".progress" = .progress, ".debug" = .debug, "vector_global_packages" = vector_global_packages, "..i" = ..i),
                   func = function_to_run
                 )
               )
@@ -484,7 +507,6 @@ round_robin_pmap_callr <- function(
                 x = paste("chunk_", ..i, sep = ""), 
                 value = callr::r_bg(
                   cmdargs	= c(.globals_save_path, ..i),
-                  package = vector_global_packages,
                   args = list("f" = function_current_instance),
                   func = function_to_run
                 )
@@ -497,7 +519,6 @@ round_robin_pmap_callr <- function(
                 x = paste("chunk_", ..i, sep = ""), 
                 value = callr::r_bg(
                   cmdargs	= c(.globals_save_path, ..i),
-                  package = vector_global_packages,
                   func = function_to_run
                 )
               )
@@ -575,7 +596,7 @@ round_robin_pmap_callr <- function(
                 print("index_last_consecutive")
                 print(index_last_consecutive)
                 
-                global_index_last_consecutive <<- index_last_consecutive
+                global_index_last_consecutive <<- index_last_consecutivef
               }
               
               if (length(index_last_consecutive) > 0 & is.na(index_last_consecutive) == FALSE) {
@@ -645,6 +666,36 @@ round_robin_pmap_callr <- function(
     unlink(list.files(path = .intermediate_files_dir, pattern = paste(.job_name, "_chunk_.*.rds", sep = ""), full.names = TRUE ), recursive = TRUE)
     unlink(list.files(path = .temp_dir, pattern = paste(.job_name, ".rdata", sep = ""), full.names = TRUE ), recursive = TRUE)
   }
+  
+  # one last output write
+  purrr::map2(
+    .x = list_workers, 
+    .y = names(list_workers), 
+    .f = function(a1, a2) {
+      
+      # DEBUG ###
+      # a1 <- list_workers[[8]]
+      # a2 <- names(list_workers) %>% .[[8]]
+      ###########
+      
+      stdout_lines <- a1$read_output_lines()
+      stderr_lines <- a1$read_error_lines()
+      
+      if (length(stdout_lines) != 0) {
+        write(x = paste(Sys.time()), file = paste(.status_messages_dir, .job_name, "_", a2, "_stdout.txt", sep = ""), append = TRUE)
+        write.table(x = stdout_lines, file = paste(.status_messages_dir, .job_name, "_", a2, "_stdout.txt", sep = ""), append = TRUE, row.names = FALSE, quote = FALSE) %>% suppressWarnings()
+      }
+      
+      if (length(stderr_lines) != 0) {
+        write(x = paste(Sys.time()), file = paste(.status_messages_dir, .job_name, "_", a2, "_stderr.txt", sep = ""), append = TRUE)
+        write.table(x = stderr_lines, file = paste(.status_messages_dir, .job_name, "_", a2, "_stderr.txt", sep = ""), append = TRUE, row.names = FALSE, quote = FALSE) %>% suppressWarnings()
+      }
+      
+      return(
+        grepl(x = stderr_lines, pattern = "^Error in", ignore.case = FALSE)
+      )
+      
+    } )
   
   # if any error, stop all
   if (any(vector_exit_statuses != 0)) {
