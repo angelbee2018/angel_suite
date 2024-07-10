@@ -1,5 +1,5 @@
 # This document contains all the amazing scripts necessary to do regular bioinformatics manipulations.
-# PLEASE CITE ME BECAUSE THIS WAS KIND OF TOUGH WORK.
+# PLEASE CITE ME BECAUSE THIS WAS KIND OF TOUGH WORK 🥺
 # For the citation information CFF file, please visit: https://github.com/angel-bee2018/angel_suite/blob/master/CITATION.cff
 
 # simple round robin callr
