@@ -264,6 +264,10 @@ round_robin_pmap_callr <- function(
     stop("ERROR: list args have incompatible lengths.")
   }
   
+  if (map_length == 0) {
+    return(.l[[1]])
+  }
+  
   # preallocate worker list
   list_workers <- list()
   
@@ -649,6 +653,17 @@ round_robin_pmap_callr <- function(
     
   }
   
+}
+
+# use round_robin_pmap_callr() to make an insulated call
+callr_insulated <- function(expr) {
+  return(round_robin_pmap_callr(
+    .l = list(
+      "a1" = list(quote(expr))
+    ),
+    .num_workers = 1, .no_chunks = 1,
+    .f = function(a1) {return(eval(a1))}
+  )[[1]])
 }
 
 # test <- round_robin_pmap_callr(
