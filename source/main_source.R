@@ -4,7 +4,7 @@
 ## no warranty or guarantee is provided for any failures or losses associated with any use of content in this document. I am just sharing this because somemone else might need something like this, and I've done the hard work already to make it a reality.
 
 # INSIDE-OUT DYNGET
-fn_inside_out_dyget <- function(.uncollected_variables, .frame_mark) {
+fn_inside_out_dyget <- function(.uncollected_variables, .debug = FALSE, .frame_mark) {
   
   # recursively traverse the frame stack from the bottom up until we collect everything
   temp_current_frame <- sys.nframe()
@@ -18,10 +18,10 @@ fn_inside_out_dyget <- function(.uncollected_variables, .frame_mark) {
       if (.debug == TRUE) {
         message("temp_current_frame: ", temp_current_frame)
         message(j)
-        print(get(x = j, envir = sys.frame(.frame_mark)))
+        print(dynGet(x = j, ifnotfound = NULL, minframe = .frame_mark))
       }
       
-      if (is.null(get(x = j, envir = sys.frame(.frame_mark))) == TRUE) {
+      if (is.null(dynGet(x = j, ifnotfound = NULL, minframe = .frame_mark)) == TRUE) {
         rm(list = j, envir = sys.frame(.frame_mark))
       }
       
@@ -38,7 +38,7 @@ fn_inside_out_dyget <- function(.uncollected_variables, .frame_mark) {
 }
 
 # RECURSIVE FUNCTION SCOPING
-fn_recursive_function_autoscoper <- function(.vector_functions_for_inspection, .vector_excluded_variables, .frame_mark) {
+fn_recursive_function_autoscoper <- function(.vector_functions_for_inspection, .vector_excluded_variables, .debug = FALSE, .frame_mark) {
   
   temp_vector_names_of_newly_discovered_nested_functions_for_inspection <- .vector_functions_for_inspection
   
@@ -49,7 +49,7 @@ fn_recursive_function_autoscoper <- function(.vector_functions_for_inspection, .
   # nested functions -> copied into environment using `dynGet` + uncollected function names are added to the uncollected list + added to vector_global_variables + flagged for further internal inspection
   while (length(temp_vector_names_of_newly_discovered_nested_functions_for_inspection) > 0) {
     
-    for (temp_function_to_inspect in purrr::map(.x = temp_vector_names_of_newly_discovered_nested_functions_for_inspection, .f = ~get(.x))) {
+    for (temp_function_to_inspect in purrr::map(.x = temp_vector_names_of_newly_discovered_nested_functions_for_inspection, .f = ~dynGet(x = .x, ifnotfound = NULL, minframe = .frame_mark))) {
       
       vector_global_packages <- c(vector_global_packages, globals::packagesOf(globals::globalsOf(temp_function_to_inspect, mustExist = FALSE)) %>% setdiff(., c("base", "rlang"))) %>% unique
       
@@ -81,7 +81,7 @@ fn_recursive_function_autoscoper <- function(.vector_functions_for_inspection, .
 }
 
 # SCOPER
-fn_variable_autoscoper <- function(.f, .user_global_objects, .debug, .frame_mark, .globals_save_dir) {
+fn_variable_autoscoper <- function(.f, .user_global_objects, .debug = FALSE, .frame_mark, .globals_save_dir) {
   
   vector_global_variables <- c(globals::findGlobals(.f), .user_global_objects)
   
@@ -644,7 +644,7 @@ round_robin_pmap_callr <- function(
   if (.keep_intermediate_files == FALSE) {
     # unlink(list.files(path = .intermediate_files_dir, pattern = paste(.job_name, "_chunk_.*.rds", sep = ""), full.names = TRUE ), recursive = TRUE)
     # unlink(list.files(path = .temp_dir, pattern = paste(.job_name, ".rdata", sep = ""), full.names = TRUE ), recursive = TRUE)
-    unlink(list.files(path = .temp_dir, pattern = ".*.qs", full.names = TRUE ), recursive = TRUE)
+    unlink(list.files(path = .globals_save_dir, pattern = ".*.qs", full.names = TRUE ), recursive = TRUE)
     unlink(list.files(path = .intermediate_files_dir, pattern = ".*.qs", full.names = TRUE ), recursive = TRUE)
   }
   
@@ -675,259 +675,369 @@ round_robin_pmap_callr <- function(
 }
 
 # use callr to make an insulated call
-# callr_insulator <- function(
-#     .f, 
-#     .num_workers = 1, .no_chunks = 1, .splicing_order = "ordered", 
-#     .job_name = NULL, 
-#     .globals_save_dir = NULL, .globals_save_compress = TRUE, .re_export = TRUE, .globals_mode = "auto", .user_global_objects = NULL, 
-#     .intermediate_files_dir = NULL, .keep_intermediate_files = FALSE, 
-#     .status_messages_dir = NULL,
-#     .debug = FALSE) {
-#   
-#   # DEBUG ###
-#   # .l = list(
-#   #   "b1" = 1:20
-#   # )
-#   # .num_workers = 20
-#   # .globals_mode = "user"
-#   # .re_export = TRUE
-#   # .globals_save_dir = paste(tempdir(), "/tempdata.rdata", sep = "")
-#   # .intermediate_files_dir = tempdir()
-#   # .user_global_objects = c()
-#   # .status_messages_dir = paste(tempdir(), sep = "")
-#   # .job_name = "test"
-#   # .splicing_order = "ordered"
-#   # .f = function(b1) {set.seed(b1);Sys.sleep(runif(n = 1, min = 10, max = 15)); return(list(LETTERS[b1]))}
-#   ###########
-#   
-#   for (i in c("globals", "callr", "purrr", "parallel", "magrittr", "utils", "tibble", "dplyr", "lubridate", "qs")) { 
-#     
-#     if (require(i, character.only = TRUE) == FALSE) {
-#       stop(paste("Package \"", i, "\" not found. Please install using `install.packages` or `BiocManager::install`", sep = ""))
-#     }
-#     
-#   }
-#   
-#   if (Sys.info()["sysname"] == "Linux") {
-#     if (system("ulimit -n", intern = TRUE) %>% type.convert(as.is = TRUE) < 65536) {
-#       warning(paste("System max. open file limit is less than the recommended 65536. Current limit is set to: ", system("ulimit -n", intern = TRUE), ". To fix this, please re-run R from bash terminal after having set `ulimit -n 65536` to avoid possible errors with large jobs and/or large number of workers/chunks.", sep = ""))
-#     }
-#   }
-#   
-#   .epoch_time <- as.numeric(Sys.time())*1E5
-#   .temp_dir <- paste(tempdir(), "_", .epoch_time, "/", sep = "")
-#   
-#   if (is.null(.job_name)) {
-#     .job_name <- paste("round_robin_pmap_callr_", .epoch_time, sep = "")
-#   }
-#   
-#   message(paste("Job name: ", .job_name, sep = ""))
-#   
-#   if (is.null(.globals_save_dir)) {
-#     .globals_save_dir <- .temp_dir
-#   }
-#   if (!dir.exists(.globals_save_dir)) {
-#     dir.create(.globals_save_dir, recursive = TRUE)
-#   }
-#   
-#   message(paste("Globals will be saved to disk at: ", .globals_save_dir, sep = ""))
-#   
-#   if (is.null(.intermediate_files_dir)) {
-#     .intermediate_files_dir <- .temp_dir
-#   }
-#   if (!dir.exists(.intermediate_files_dir)) {
-#     dir.create(.intermediate_files_dir, recursive = TRUE)
-#   }
-#   
-#   if (.debug == TRUE) {
-#     message(paste(".keep_intermediate_files: ", .keep_intermediate_files, sep = ""))
-#   }
-#   
-#   message(paste("Intermediate files will be saved to disk at: ", .intermediate_files_dir, sep = ""))
-#   
-#   if (is.null(.status_messages_dir)) {
-#     .status_messages_dir <- .temp_dir
-#   }
-#   if (!dir.exists(.status_messages_dir)) {
-#     dir.create(.status_messages_dir, recursive = TRUE)
-#   }
-#   
-#   message(paste("Status messages will be saved to disk at: ", .status_messages_dir, sep = ""))
-#   
-#   # SCOPING ###
-#   
-#   .f <- quote(.f)
-#   
-#   vector_global_packages <- globals::packagesOf(globals::globalsOf(.f, mustExist = FALSE)) %>% setdiff(., c("base", "rlang"))
-#   
-#   if (.debug == TRUE) {
-#     print("vector_global_packages at the surface level of the function")
-#     print(vector_global_packages)
-#   }
-#   
-#   ## mark the current frame number
-#   .frame_mark <- sys.nframe()
-#   
-#   list_fn_variable_autoscoper <- fn_variable_autoscoper(.f = .f, .user_global_objects = .user_global_objects, .debug = .debug, .frame_mark = .frame_mark, .globals_save_dir = .globals_save_dir)
-#   
-#   vector_global_variables <- list_fn_variable_autoscoper$vector_global_variables
-#   temp_global_variables_uncollected <- list_fn_variable_autoscoper$temp_global_variables_uncollected
-#   
-#   if (length(temp_global_variables_uncollected) > 0) {
-#     warning(paste("Scoping has finished but there remain some uncollected variables: ", paste(temp_global_variables_uncollected, collapse = " , "), "\n"))
-#     
-#     if (.debug == TRUE) {
-#       message("all variables in environment right before writing to disk")
-#       print(ls())
-#     }
-#     
-#     vector_global_variables <- setdiff(vector_global_variables, temp_global_variables_uncollected)
-#   }
-#   
-#   message("Writing globals to disk")
-#   # save(list = vector_global_variables, file = .globals_save_dir, compress = .globals_save_compress)
-#   
-#   for (i in vector_global_variables) {
-#     qs::qsave(x = get(i, envir = sys.frame(.frame_mark)), file = paste(.globals_save_dir, i, ".qs", sep = ""))
-#   }
-#   
-#   # END SCOPING ###
-#   
-#     # define function to be fun
-#     function_to_run <- function(.f, .globals_save_dir, .intermediate_files_dir, .job_name, .debug, vector_global_variables, vector_global_packages) {
-#       
-#       lapply(vector_global_packages, library, character.only = TRUE)
-#       
-#       for (i in vector_global_variables) {
-#         assign(x = i, value = qs::qread(file = paste(.globals_save_dir, i, ".qs", sep = "")), envir = .GlobalEnv)
-#       }
-#       
-#       # load(file = .globals_save_dir, envir = .GlobalEnv)
-#       
-#       if (.debug == TRUE) {
-#         print("ls before pmap")
-#         print(ls())
-#       }
-#       
-#       obj <- eval(.f)
-#       
-#       # saveRDS(object = obj, file = paste(.intermediate_files_dir, "/", .job_name, "_chunk_", ..i, ".rds", sep = ""))
-#       qs::qsave(x = obj, file = paste(.intermediate_files_dir, "/", .job_name, "_insulator.qs", sep = ""))
-#       
-#       return(NULL)
-#       
-#     }
-#     
-#     # assign background worker
-#     assign(
-#       x = "callr_insulator", 
-#       value = callr::r_bg(
-#         cmdargs	= c(.globals_save_dir, "callr_insulator"),
-#         args = list(".f" = .f, ".globals_save_dir" = .globals_save_dir, ".intermediate_files_dir" = .intermediate_files_dir, ".job_name" = .job_name, ".debug" = .debug, "vector_global_variables" = vector_global_variables, "vector_global_packages" = vector_global_packages),
-#         func = function_to_run
-#       )
-#     )
-#     
-#   # keep running while there are no errors
-#   ## NULL values dont count as nonzero - this is good for us
-#   flag_completion <- FALSE
-#   
-#   vector_exit_statuses <- 0
-#   
-#   while(all(vector_exit_statuses == 0)) {
-#     
-#     vector_logical_indices_workers_completed_reported <- unlist(purrr::map(.x = list_workers, .f = ~.x$get_exit_status())) == 0
-#     
-#     if (.debug == TRUE) {
-#       print("vector_logical_indices_workers_completed_reported")
-#       print(vector_logical_indices_workers_completed_reported)
-#       
-#       global_vector_logical_indices_workers_completed_reported <<- vector_logical_indices_workers_completed_reported
-#     }
-#     
-#     # check on process status and write progress file
-#      
-#         
-#         stdout_lines <- callr_insulator$read_output_lines()
-#         stderr_lines <- callr_insulator$read_error_lines()
-#         
-#         if (length(stdout_lines) != 0) {
-#           write(x = paste(Sys.time()), file = paste(.status_messages_dir, .job_name, "_", callr_insulator, "_stdout.txt", sep = ""), append = TRUE)
-#           write.table(x = stdout_lines, file = paste(.status_messages_dir, .job_name, "_", callr_insulator, "_stdout.txt", sep = ""), append = TRUE, row.names = FALSE, quote = FALSE) %>% suppressWarnings()
-#         }
-#         
-#         if (length(stderr_lines) != 0) {
-#           write(x = paste(Sys.time()), file = paste(.status_messages_dir, .job_name, "_", callr_insulator, "_stderr.txt", sep = ""), append = TRUE)
-#           write.table(x = stderr_lines, file = paste(.status_messages_dir, .job_name, "_", callr_insulator, "_stderr.txt", sep = ""), append = TRUE, row.names = FALSE, quote = FALSE) %>% suppressWarnings()
-#         }
-#         
-#         logical_any_error <- grepl(x = stderr_lines, pattern = "^Error in", ignore.case = FALSE)
-#         
-#     
-#     # check for errors that don't show up in process exit status
-#     if (list_logical_any_error == TRUE) {
-#       callr_insulator$signal(9)
-#       stop(print("Stop error received"))
-#     }
-#     
-#     # round robin action until the list is fully mapped
-#     if (flag_completion == TRUE) {
-#       break()
-#     } else if (flag_completion == FALSE) {
-#       
-#       flag_isalive <- callr_insulator$is_alive()
-#       
-#       flag_exit_status_is_zero <- callr_insulator$get_exit_status == 0
-#       
-#       
-#       
-#       # deal with completion flag
-#       if (.splicing_order %in% c("ordered", "unordered")) {
-#         flag_completion <- length(list_result) == map_length
-#       } else {
-#         flag_completion <- length(which(vector_logical_indices_workers_completed_reported)) == map_length
-#       }
-#       
-#     }
-#         
-#         chunk <- qs::qread(file = paste(.intermediate_files_dir, "/", .job_name, "_insulator.qs", sep = ""))
-#     
-#         Sys.sleep(1)
-#         
-#   }
-#   
-#   if (.keep_intermediate_files == FALSE) {
-#     # unlink(list.files(path = .intermediate_files_dir, pattern = paste(.job_name, "_chunk_.*.rds", sep = ""), full.names = TRUE ), recursive = TRUE)
-#     # unlink(list.files(path = .temp_dir, pattern = paste(.job_name, ".rdata", sep = ""), full.names = TRUE ), recursive = TRUE)
-#     unlink(list.files(path = .temp_dir, pattern = ".*.qs", full.names = TRUE ), recursive = TRUE)
-#     unlink(list.files(path = .intermediate_files_dir, pattern = ".*.qs", full.names = TRUE ), recursive = TRUE)
-#   }
-#   
-#   # if any error, stop all
-#   if (any(vector_exit_statuses != 0)) {
-#     purrr::map(.x = list_workers, .f = ~.x$signal(9))
-#     stop(print(paste("Exit status failure received on chunks:", paste(names(list_workers)[which(vector_exit_statuses != 0)], collapse = ", "))))
-#   }
-#   
-#   rm(list = ls(pattern = "chunk_"))
-#   rm(list_workers)
-#   
-#   cat("\n")
-#   
-#   # unchunkify
-#   if (.splicing_order %in% c("ordered", "unordered")) {
-#     
-#     list_result <- list_result %>% purrr::flatten()
-#     
-#     return(list_result)
-#     
-#   } else {
-#     
-#     return(NULL)
-#     
-#   }
-#   
-# }
+callr_insulator <- function(
+    .f,
+    .num_workers = 1, .no_chunks = 1, 
+    .job_name = NULL,
+    .globals_save_dir = NULL, .globals_save_compress = TRUE, .re_export = TRUE, .globals_mode = "auto", .user_global_objects = NULL,
+    .intermediate_files_dir = NULL, .keep_intermediate_files = FALSE,
+    .status_messages_dir = NULL,
+    .debug = FALSE) {
+  
+  # DEBUG ###
+  # .f = combn(x = 1:8, m = 3)
+  # .num_workers = 1
+  # .no_chunks = 1
+  # .job_name = NULL
+  # .globals_save_dir = NULL
+  # .globals_save_compress = TRUE
+  # .re_export = TRUE
+  # .globals_mode = "auto"
+  # .user_global_objects = NULL
+  # .intermediate_files_dir = NULL
+  # .keep_intermediate_files = FALSE
+  # .status_messages_dir = NULL
+  # .debug = FALSE
+  ###########
+  
+  for (i in c("globals", "callr", "purrr", "parallel", "magrittr", "utils", "tibble", "dplyr", "lubridate", "qs")) {
+    
+    if (require(i, character.only = TRUE) == FALSE) {
+      stop(paste("Package \"", i, "\" not found. Please install using `install.packages` or `BiocManager::install`", sep = ""))
+    }
+    
+  }
+  
+  if (Sys.info()["sysname"] == "Linux") {
+    if (system("ulimit -n", intern = TRUE) %>% type.convert(as.is = TRUE) < 65536) {
+      warning(paste("System max. open file limit is less than the recommended 65536. Current limit is set to: ", system("ulimit -n", intern = TRUE), ". To fix this, please re-run R from bash terminal after having set `ulimit -n 65536` to avoid possible errors with large jobs and/or large number of workers/chunks.", sep = ""))
+    }
+  }
+  
+  .epoch_time <- as.numeric(Sys.time())*1E5
+  .temp_dir <- paste(tempdir(), "_", .epoch_time, "/", sep = "")
+  
+  if (is.null(.job_name)) {
+    .job_name <- paste("round_robin_pmap_callr_", .epoch_time, sep = "")
+  }
+  
+  message(paste("Job name: ", .job_name, sep = ""))
+  
+  if (is.null(.globals_save_dir)) {
+    .globals_save_dir <- .temp_dir
+  }
+  if (!dir.exists(.globals_save_dir)) {
+    dir.create(.globals_save_dir, recursive = TRUE)
+  }
+  
+  message(paste("Globals will be saved to disk at: ", .globals_save_dir, sep = ""))
+  
+  if (is.null(.intermediate_files_dir)) {
+    .intermediate_files_dir <- .temp_dir
+  }
+  if (!dir.exists(.intermediate_files_dir)) {
+    dir.create(.intermediate_files_dir, recursive = TRUE)
+  }
+  
+  if (.debug == TRUE) {
+    message(paste(".keep_intermediate_files: ", .keep_intermediate_files, sep = ""))
+  }
+  
+  message(paste("Intermediate files will be saved to disk at: ", .intermediate_files_dir, sep = ""))
+  
+  if (is.null(.status_messages_dir)) {
+    .status_messages_dir <- .temp_dir
+  }
+  if (!dir.exists(.status_messages_dir)) {
+    dir.create(.status_messages_dir, recursive = TRUE)
+  }
+  
+  message(paste("Status messages will be saved to disk at: ", .status_messages_dir, sep = ""))
+  
+  # # SCOPING - FUNCTIONED BUT CURRENTLY IS BROKEN ###
+  # 
+  # vector_global_packages <- globals::packagesOf(globals::globalsOf(.f, mustExist = FALSE)) %>% setdiff(., c("base", "rlang"))
+  # 
+  # if (.debug == TRUE) {
+  #   print("vector_global_packages at the surface level of the function")
+  #   print(vector_global_packages)
+  # }
+  # 
+  # ## mark the current frame number
+  # .frame_mark <- sys.nframe()
+  # 
+  # list_fn_variable_autoscoper <- fn_variable_autoscoper(.f = .f, .user_global_objects = .user_global_objects, .debug = .debug, .frame_mark = .frame_mark, .globals_save_dir = .globals_save_dir)
+  # 
+  # vector_global_variables <- list_fn_variable_autoscoper$vector_global_variables
+  # temp_global_variables_uncollected <- list_fn_variable_autoscoper$temp_global_variables_uncollected
+  # 
+  # if (length(temp_global_variables_uncollected) > 0) {
+  #   warning(paste("Scoping has finished but there remain some uncollected variables: ", paste(temp_global_variables_uncollected, collapse = " , "), "\n"))
+  #   
+  #   if (.debug == TRUE) {
+  #     message("all variables in environment right before writing to disk")
+  #     print(ls())
+  #   }
+  #   
+  #   vector_global_variables <- setdiff(vector_global_variables, temp_global_variables_uncollected)
+  # }
+  # 
+  # message("Writing globals to disk")
+  # # save(list = vector_global_variables, file = .globals_save_dir, compress = .globals_save_compress)
+  # 
+  # for (i in vector_global_variables) {
+  #   qs::qsave(x = get(i, envir = sys.frame(.frame_mark)), file = paste(.globals_save_dir, i, ".qs", sep = ""))
+  # }
+  # 
+  # # END SCOPING - FUNCTIONED ###
+  
+  # SCOPING ###
+  
+  vector_global_packages <- globals::packagesOf(globals::globalsOf(.f, mustExist = FALSE)) %>% setdiff(., c("base", "rlang"))
+  
+  if (.debug == TRUE) {
+    print("vector_global_packages at the surface level of the function")
+    print(vector_global_packages)
+  }
+  
+  # save the current env into temp path
+  if (.re_export == FALSE & dir.exists(.globals_save_dir)) {
+    
+    message("Temp object data file found. Will load that instead of re-exporting")
+    
+  } else {
+    
+    if (.globals_mode == "global") {
+      message("Writing globals to disk")
+      save.image(file = .globals_save_dir, compress = .globals_save_compress)
+    } else if (.globals_mode == "auto") {
+      
+      vector_global_variables <- c(globals::findGlobals(.f), .user_global_objects)
+      
+      if (.debug == TRUE) {
+        print(vector_global_variables)
+      }
+      
+      temp_global_variables_uncollected <- setdiff(vector_global_variables, ls())
+      
+      # recursively traverse the frame stack from the bottom up until we collect everything
+      temp_current_frame <- sys.nframe()
+      
+      while (length(temp_global_variables_uncollected) > 0 & temp_current_frame > -1) {
+        
+        for (j in temp_global_variables_uncollected) {
+          
+          assign(x = j, value = dynGet(x = j, ifnotfound = NULL, minframe = temp_current_frame))
+          
+          if (.debug == TRUE) {
+            message("temp_current_frame: ", temp_current_frame)
+            message(j)
+            print(get(x = j))
+          }
+          
+          if (is.null(get(x = j)) == TRUE) {
+            rm(list = j)
+          }
+          
+        }
+        
+        temp_global_variables_uncollected <- setdiff(temp_global_variables_uncollected, ls())
+        
+        temp_current_frame <- temp_current_frame - 1
+        
+      }
+      
+      # deal with the special case of nested function definitions
+      vector_all_function_names_in_environment <- lsf.str() %>% as.character
+      
+      temp_vector_names_of_newly_discovered_nested_functions_for_inspection <- vector_all_function_names_in_environment
+      temp_vector_names_of_newly_discovered_nested_functions_for_inspection0 <- character()
+      
+      # recursively inspect functions until there are no more functions within the functions
+      # nested packages -> added to global vector of package names
+      # nested functions -> copied into environment using `dynGet` + uncollected function names are added to the uncollected list + added to vector_global_variables + flagged for further internal inspection
+      while (length(temp_vector_names_of_newly_discovered_nested_functions_for_inspection) > 0) {
+        
+        for (temp_function_to_inspect in purrr::map(.x = temp_vector_names_of_newly_discovered_nested_functions_for_inspection, .f = ~get(.x))) {
+          
+          vector_global_packages <- c(vector_global_packages, globals::packagesOf(globals::globalsOf(temp_function_to_inspect, mustExist = FALSE)) %>% setdiff(., c("base", "rlang"))) %>% unique
+          
+          temp_vector_names_of_newly_discovered_nested_functions_for_inspection0 <- c(temp_vector_names_of_newly_discovered_nested_functions_for_inspection0, setdiff(globals::findGlobals(temp_function_to_inspect), temp_global_variables_uncollected))
+          
+        }
+        
+        # flag for further internal inspection
+        temp_vector_names_of_newly_discovered_nested_functions_for_inspection <- temp_vector_names_of_newly_discovered_nested_functions_for_inspection0
+        
+        # copy into env using dynGet
+        # recursively traverse the frame stack from the bottom up until we collect everything
+        temp_current_frame <- sys.nframe()
+        
+        while (length(temp_vector_names_of_newly_discovered_nested_functions_for_inspection0) > 0 & temp_current_frame > -1) {
+          
+          for (j in temp_vector_names_of_newly_discovered_nested_functions_for_inspection0) {
+            
+            assign(x = j, value = dynGet(x = j, ifnotfound = NULL, minframe = temp_current_frame))
+            
+            if (.debug == TRUE) {
+              message("temp_current_frame: ", temp_current_frame)
+              message(j)
+              print(get(x = j))
+            }
+            
+            if (is.null(get(x = j)) == TRUE) {
+              rm(list = j)
+            }
+            
+          }
+          
+          temp_vector_names_of_newly_discovered_nested_functions_for_inspection0 <- setdiff(temp_vector_names_of_newly_discovered_nested_functions_for_inspection0, ls())
+          
+          temp_current_frame <- temp_current_frame - 1
+          
+        }
+        
+        # uncollected function names are added to the global uncollected list
+        temp_global_variables_uncollected <- c(temp_global_variables_uncollected, temp_vector_names_of_newly_discovered_nested_functions_for_inspection0) %>% unique
+        
+        # flag for further internal inspection (update to have only collected and loaded functions)
+        temp_vector_names_of_newly_discovered_nested_functions_for_inspection <- intersect(temp_vector_names_of_newly_discovered_nested_functions_for_inspection, lsf.str() %>% as.character)
+        
+        # collected functions added to vector_global_variables
+        vector_global_variables <- c(vector_global_variables, temp_vector_names_of_newly_discovered_nested_functions_for_inspection) %>% unique
+        
+        temp_vector_names_of_newly_discovered_nested_functions_for_inspection0 <- character()
+        
+      }
+      
+      if (length(temp_global_variables_uncollected) > 0) {
+        warning(paste("Scoping has finished but there remain some uncollected variables: ", paste(temp_global_variables_uncollected, collapse = " , "), "\n"))
+        
+        if (.debug == TRUE) {
+          message("all variables in environment right before writing to disk")
+          print(ls())
+        }
+        
+        vector_global_variables <- setdiff(vector_global_variables, temp_global_variables_uncollected)
+      }
+      
+      message("Writing globals to disk")
+      # save(list = vector_global_variables, file = .globals_save_dir, compress = .globals_save_compress)
+      
+      for (i in vector_global_variables) {
+        qs::qsave(x = get(i), file = paste(.globals_save_dir, i, ".qs", sep = ""))
+      }
+      
+    }
+    
+  }
+  
+  # END SCOPING ###
+  
+  # define function to be fun
+  function_to_run <- function(.f, .globals_save_dir, .intermediate_files_dir, .job_name, .debug, vector_global_variables, vector_global_packages) {
+    
+    lapply(vector_global_packages, library, character.only = TRUE)
+    
+    for (i in vector_global_variables) {
+      assign(x = i, value = qs::qread(file = paste(.globals_save_dir, i, ".qs", sep = "")), envir = .GlobalEnv)
+    }
+    
+    # load(file = .globals_save_dir, envir = .GlobalEnv)
+    
+    if (.debug == TRUE) {
+      print("ls before pmap")
+      print(ls())
+    }
+    
+    obj <- eval(.f)
+    
+    # saveRDS(object = obj, file = paste(.intermediate_files_dir, "/", .job_name, "_chunk_", ..i, ".rds", sep = ""))
+    qs::qsave(x = obj, file = paste(.intermediate_files_dir, "/", .job_name, "_insulator.qs", sep = ""))
+    
+    return(NULL)
+    
+  }
+  
+  # assign background worker
+  assign(
+    x = "callr_insulator",
+    value = callr::r_bg(
+      cmdargs	= c(.globals_save_dir, "callr_insulator"),
+      args = list(".f" = .f, ".globals_save_dir" = .globals_save_dir, ".intermediate_files_dir" = .intermediate_files_dir, ".job_name" = .job_name, ".debug" = .debug, "vector_global_variables" = vector_global_variables, "vector_global_packages" = vector_global_packages),
+      func = function_to_run
+    )
+  )
+  
+  # keep running while there are no errors
+  ## NULL values dont count as nonzero - this is good for us
+  flag_completion <- FALSE
+
+  while(flag_completion == FALSE) {
+    
+    # check on process status and write progress file
+    stdout_lines <- callr_insulator$read_output_lines()
+    stderr_lines <- callr_insulator$read_error_lines()
+    
+    if (length(stdout_lines) != 0) {
+      write(x = paste(Sys.time()), file = paste(.status_messages_dir, .job_name, "_", "callr_insulator", "_stdout.txt", sep = ""), append = TRUE)
+      write.table(x = stdout_lines, file = paste(.status_messages_dir, .job_name, "_", "callr_insulator", "_stdout.txt", sep = ""), append = TRUE, row.names = FALSE, quote = FALSE) %>% suppressWarnings()
+    }
+    
+    if (length(stderr_lines) != 0) {
+      write(x = paste(Sys.time()), file = paste(.status_messages_dir, .job_name, "_", "callr_insulator", "_stderr.txt", sep = ""), append = TRUE)
+      write.table(x = stderr_lines, file = paste(.status_messages_dir, .job_name, "_", "callr_insulator", "_stderr.txt", sep = ""), append = TRUE, row.names = FALSE, quote = FALSE) %>% suppressWarnings()
+    }
+    
+    # if any error, stop all
+    insulator_exit_status <- callr_insulator$get_exit_status()
+    
+    if (!is.null(insulator_exit_status)) {
+      if (insulator_exit_status != 0) {
+        callr_insulator$signal(9)
+        stop(print("Exit status failure received in insulator"))
+      }
+    }
+    
+    # check for errors that don't show up in process exit status
+    logical_any_error <- grepl(x = stderr_lines, pattern = "^Error in", ignore.case = FALSE)
+    
+    if (length(logical_any_error) > 0) {
+      if (any(logical_any_error) == TRUE) {
+        callr_insulator$signal(9)
+        stop(print("Stop error received"))
+      }
+    }
+    
+    # completion flag
+    flag_isalive <- callr_insulator$is_alive()
+    flag_exit_status_is_zero <- if (is.null(insulator_exit_status)) {FALSE} else {insulator_exit_status == 0}
+    flag_completion <- (flag_isalive == FALSE) & (flag_exit_status_is_zero == TRUE)
+    
+    if (flag_completion == TRUE) {
+      break()
+    } else if (flag_completion == FALSE) {
+      Sys.sleep(1)
+    }
+    
+  }
+  
+  result <- qs::qread(file = paste(.intermediate_files_dir, "/", .job_name, "_insulator.qs", sep = ""))
+  
+  if (.keep_intermediate_files == FALSE) {
+    # unlink(list.files(path = .intermediate_files_dir, pattern = paste(.job_name, "_chunk_.*.rds", sep = ""), full.names = TRUE ), recursive = TRUE)
+    # unlink(list.files(path = .temp_dir, pattern = paste(.job_name, ".rdata", sep = ""), full.names = TRUE ), recursive = TRUE)
+    unlink(list.files(path = .temp_dir, pattern = ".*.qs", full.names = TRUE ), recursive = TRUE)
+    unlink(list.files(path = .intermediate_files_dir, pattern = ".*.qs", full.names = TRUE ), recursive = TRUE)
+  }
+  
+  rm(callr_insulator)
+  
+  cat("\n")
+  
+  return(result)
+  
+}
 
 # test <- round_robin_pmap_callr(
 #   .l = list(
