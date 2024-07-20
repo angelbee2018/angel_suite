@@ -699,6 +699,10 @@ callr_insulator <- function(
   # .status_messages_dir = NULL
   # .debug = FALSE
   ###########
+
+  if (is.call(.f) == FALSE & (is.function(.f) == FALSE)) {
+        stop("Expect .f to be of class \"call\" or \"function".")
+        }
   
   for (i in c("globals", "callr", "purrr", "parallel", "magrittr", "utils", "tibble", "dplyr", "lubridate", "qs")) {
     
@@ -949,8 +953,12 @@ callr_insulator <- function(
       print("ls before pmap")
       print(ls())
     }
-    
-    obj <- eval(.f)
+
+    if (is.call(.f) == TRUE) {
+      obj <- eval(.f)      
+      } else if (is.function(.f) == TRUE) {
+      obj <- .f()
+      }
     
     # saveRDS(object = obj, file = paste(.intermediate_files_dir, "/", .job_name, "_chunk_", ..i, ".rds", sep = ""))
     qs::qsave(x = obj, file = paste(.intermediate_files_dir, "/", .job_name, "_insulator.qs", sep = ""))
