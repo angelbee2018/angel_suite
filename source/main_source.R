@@ -701,7 +701,7 @@ callr_insulator <- function(
   ###########
 
   if (is.call(.f) == FALSE & (is.function(.f) == FALSE)) {
-        stop("Expect .f to be of class \"call\" or \"function".")
+        stop("Expect .f to be of class \"call\" or \"function\"")
         }
   
   for (i in c("globals", "callr", "purrr", "parallel", "magrittr", "utils", "tibble", "dplyr", "lubridate", "qs")) {
@@ -937,6 +937,8 @@ callr_insulator <- function(
   }
   
   # END SCOPING ###
+  
+  message("Commencing insulated computation")
   
   # define function to be fun
   function_to_run <- function(.f, .globals_save_dir, .intermediate_files_dir, .job_name, .debug, vector_global_variables, vector_global_packages) {
