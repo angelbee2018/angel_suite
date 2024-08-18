@@ -1,0 +1,107 @@
+# Testing codes
+
+## round_robin_pmap_callr: ensembl GTF region matching
+  
+```{r}
+
+library(tidyverse)
+
+source("C:/Users/angel/Documents/angel_suite/source/main_source.R")
+
+tibble_ref_gtf <- data.table::fread(file = "D:/edn_suite/data/annotated_ensembl_gtf_release_104.txt", sep = "\t", header = TRUE) %>% tibble::as_tibble()
+
+tibble_ref_gtf_short <- tibble_ref_gtf[1:100000,]
+
+library(furrr)
+library(purrr)
+plan(list(tweak(multisession, workers = 8)))
+options(future.globals.maxSize = 99999999999)
+
+system.time(
+test <- furrr::future_pmap(
+  .l = list(
+    "a1" = tibble_ref_gtf_short[tibble_ref_gtf_short$type == "transcript", ] %>% purrr::array_tree(),
+    "a2" = 1:(tibble_ref_gtf_short[tibble_ref_gtf_short$type == "transcript", ] %>% purrr::array_tree() %>% length)
+  ), 
+  .f = function(a1, a2) {
+    
+    extract_overlapping_features(query_chr = a1$seqnames, query_start = a1$start %>% type.convert(as.is = TRUE), query_end = a1$end %>% type.convert(as.is = TRUE), query_strand = a1$strand, tibble_gtf_table = tibble_ref_gtf, left_query_shift = 0, right_query_shift = 0, left_tolerance = 0, right_tolerance = 0, return_type = NULL, complete_overlap = FALSE) %>% 
+      return
+    
+  }, .progress = TRUE )
+)
+
+# system.time(
+# test <- parallel::mclapply(
+#   X = tibble_ref_gtf_short[tibble_ref_gtf_short$type == "transcript", ] %>% purrr::array_tree(),
+#   mc.cores = 8,
+#   FUN = function(a1, a2) {
+#     
+#     extract_overlapping_features(query_chr = a1$seqnames, query_start = a1$start %>% type.convert(as.is = TRUE), query_end = a1$end %>% type.convert(as.is = TRUE), query_strand = a1$strand, tibble_gtf_table = tibble_ref_gtf, left_query_shift = 0, right_query_shift = 0, left_tolerance = 0, right_tolerance = 0, return_type = NULL, complete_overlap = FALSE) %>% 
+#       return
+#     
+#   } )
+# )
+
+system.time(
+test <- round_robin_pmap_callr(
+  .l = list(
+    "a1" = 1:nrow(tibble_ref_gtf_short[tibble_ref_gtf_short$type == "transcript", ])
+  ), 
+  .num_workers = 8, 
+  .no_chunks = 8, 
+  .job_name = "test",
+  .f = function(a1, a2) {
+    
+    extract_overlapping_features(query_chr = tibble_ref_gtf_short[a1, ] %>% .$seqnames, query_start = tibble_ref_gtf_short[a1, ] %>% .$start %>% type.convert(as.is = TRUE), query_end = tibble_ref_gtf_short[a1, ] %>% .$end %>% type.convert(as.is = TRUE), query_strand = tibble_ref_gtf_short[a1, ] %>% .$strand, tibble_gtf_table = tibble_ref_gtf, left_query_shift = 0, right_query_shift = 0, left_tolerance = 0, right_tolerance = 0, return_type = NULL, complete_overlap = FALSE) %>% 
+      return
+    
+  } )
+)
+
+```
+
+## round_robin_pmap_callr: ensembl GTF region matching
+
+```{r}
+
+library(furrr)
+library(purrr)
+plan(list(tweak(multisession, workers = 4)))
+
+boot_df <- function(x) x[sample(nrow(x), replace = T), ]
+rsquared <- function(mod) summary(mod)$r.squared
+boot_lm <- function(i) {
+  rsquared(lm(mpg ~ wt + disp, data = boot_df(mtcars)))
+}
+
+system.time(map(1:20000, boot_lm))
+
+system.time(future_map(1:50000, boot_lm)) %>% suppressMessages() %>% suppressWarnings()
+
+system.time(round_robin_pmap_callr(.l = list("a1" = 1:50000), .num_workers = 4, .no_chunks = 4, .f = function(a1) {boot_lm()}))
+
+system.time(
+  round_robin_pmap_callr(
+    .l = list(
+      "a1" = 1:50000
+    ), 
+    .num_workers = 4, 
+    .no_chunks = 4, 
+    .job_name = "boot_lm",
+    .f = function(a1) {boot_lm() %>% return} )
+)
+
+```
+
+## vectorisation
+
+```{r}
+
+test1 <- tibble_ref_gtf_short[tibble_ref_gtf_short$type == "transcript", ]
+
+test2 <- Rfast::Outer(x = test1$start %>% as.numeric, y = tibble_ref_gtf$end %>% as.numeric, oper = "-")
+
+```
+
+
