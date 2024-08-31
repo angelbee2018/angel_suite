@@ -1,6 +1,7 @@
 # This document contains all the amazing scripts necessary to do regular bioinformatics manipulations.
-# PLEASE CITE ME BECAUSE THIS WAS KIND OF TOUGH WORK 🥺
+# PLEASE CITE ME PLEASE CITE ME PLEASE CITE ME PLEASE CITE ME PLEASE CITE ME PLEASE CITE ME PLEASE CITE ME 
 # For the citation information CFF file, please visit: https://github.com/angel-bee2018/angel_suite/blob/master/CITATION.cff
+# PLEASE CITE ME PLEASE CITE ME PLEASE CITE ME PLEASE CITE ME PLEASE CITE ME PLEASE CITE ME PLEASE CITE ME 
 ## no warranty or guarantee is provided for any failures or losses associated with any use of content in this document. I am just sharing this because somemone else might need something like this, and I've done the hard work already to make it a reality.
 
 # INSIDE-OUT DYNGET
