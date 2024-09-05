@@ -8,9 +8,9 @@ library(tidyverse)
 
 source("C:/Users/angel/Documents/angel_suite/source/main_source.R")
 
-tibble_ref_gtf <- data.table::fread(file = "D:/edn_suite/data/annotated_ensembl_gtf_release_104.txt", sep = "\t", header = TRUE) %>% tibble::as_tibble()
+tibble_ref_gtf <- data.table::fread(file = "F:/edn_suite/data/annotated_ensembl_gtf_release_104.txt", sep = "\t", header = TRUE) %>% tibble::as_tibble()
 
-tibble_ref_gtf_short <- tibble_ref_gtf[1:100000,]
+tibble_ref_gtf_short <- tibble_ref_gtf[1:10000,]
 
 library(furrr)
 library(purrr)
@@ -98,6 +98,15 @@ system.time(
 
 ```{r}
 
+library(tidyverse)
+
+source("C:/Users/angel/Documents/angel_suite/source/main_source.R")
+
+tibble_ref_gtf <- data.table::fread(file = "F:/edn_suite/data/annotated_ensembl_gtf_release_104.txt", sep = "\t", header = TRUE) %>% tibble::as_tibble()
+
+tibble_ref_gtf_short <- tibble_ref_gtf[1:100000,]
+
+
 test1 <- tibble_ref_gtf_short[tibble_ref_gtf_short$type == "transcript", ]
 
 test2 <- Rfast::Outer(x = test1$start %>% as.numeric, y = tibble_ref_gtf$end %>% as.numeric, oper = "-")
@@ -105,3 +114,231 @@ test2 <- Rfast::Outer(x = test1$start %>% as.numeric, y = tibble_ref_gtf$end %>%
 ```
 
 
+### 
+
+```{r}
+
+test <- extract_overlapping_features_vectorised(
+    .query_chr = tibble_ref_gtf_short$seqnames, .query_start = tibble_ref_gtf_short$start, .query_end = tibble_ref_gtf_short$end, .query_strand = tibble_ref_gtf_short$strand, 
+    .ref_chr = tibble_ref_gtf_short$seqnames, .ref_start = tibble_ref_gtf_short$start, .ref_end = tibble_ref_gtf_short$end, .ref_strand = tibble_ref_gtf_short$strand, 
+    .query_start_shift = 0, .query_end_shift = 0, .query_start_tolerance = 0, .query_end_tolerance = 0, 
+    .overlap_type = "exact",
+    .result_mode = "list_of_indices", 
+    .max_mem_usage = 8E9)
+
+test2 <- round_robin_pmap_callr(
+    .l = list(
+      "a1" = tibble_ref_gtf_short$seqnames,
+      "a2" = tibble_ref_gtf_short$start,
+      "a3" = tibble_ref_gtf_short$end,
+      "a4" = tibble_ref_gtf_short$strand
+    ), 
+    .num_workers = 8, 
+    .no_chunks = 8, 
+    .job_name = "boot_lm",
+    .f = function(a1, a2, a3, a4) {
+      extract_overlapping_features_vectorised(
+        .query_chr = a1, .query_start = a2, .query_end = a3, .query_strand = a4, 
+        .ref_chr = tibble_ref_gtf_short$seqnames, .ref_start = tibble_ref_gtf_short$start, .ref_end = tibble_ref_gtf_short$end, .ref_strand = tibble_ref_gtf_short$strand, 
+        .query_start_shift = 0, .query_end_shift = 0, .query_start_tolerance = 0, .query_end_tolerance = 0, 
+        .overlap_type = "exact",
+        .result_mode = "list_of_indices", 
+        .max_mem_usage = 2E9)
+      } )
+
+# on `outer`: rows = query, columns = reference, X - Y
+
+extract_overlapping_features_vectorised <- function(
+    .query_chr, .query_start, .query_end, .query_strand, 
+    .ref_chr, .ref_start, .ref_end, .ref_strand, 
+    .query_start_shift = 0, .query_end_shift = 0, .query_start_tolerance = 0, .query_end_tolerance = 0, 
+    .overlap_type = c("exact", "query_bigger_or_equal", "ref_bigger_or_equal", "query_bigger", "ref_bigger"), 
+    .result_mode = c("list_of_match_matrices", "list_of_indices"), 
+    .max_mem_usage = 1E9) {
+  
+  # DEBUG ###################
+  # .query_chr <- tibble_ref_gtf_short$seqnames %>% .[351:850]
+  # .query_start <- tibble_ref_gtf_short$start %>% .[351:850]
+  # .query_end <- tibble_ref_gtf_short$end %>% .[351:850]
+  # .query_strand <- tibble_ref_gtf_short$strand %>% .[351:850]
+  # .ref_chr <- tibble_ref_gtf_short$seqnames
+  # .ref_start <- tibble_ref_gtf_short$start
+  # .ref_end <- tibble_ref_gtf_short$end
+  # .ref_strand <- tibble_ref_gtf_short$strand
+  # .query_start_shift <- 4
+  # .query_end_shift <- 4
+  # .query_start_tolerance <- 4
+  # .query_end_tolerance <- 4
+  # .overlap_type <- "exact"
+  # .max_mem_usage <- 1E9
+  ###########################
+  
+  # MAIN FUNCTION ###
+  
+  f_ <- function(query_chr_, query_start_, query_end_, query_strand_) {
+    
+    # chr
+    matrix_match0 <- outer(X = as.character(query_chr_), Y = as.character(.ref_chr), FUN = "==") * 1
+    
+    # start
+    if (.overlap_type == "exact") {
+      matrix_match1 <- abs(outer(X = query_start_, Y = ref_start0, FUN = "-"))
+      matrix_match1[matrix_match1 <= .query_start_tolerance] <- -1
+      matrix_match1[matrix_match1 != -1] <- 0
+      matrix_match1 <- -matrix_match1
+    } else if (.overlap_type == "query_bigger_or_equal") {
+      matrix_match1 <- outer(X = query_start_, Y = ref_start0, FUN = "-")
+      matrix_match1[matrix_match1 <= .query_start_tolerance] <- -1
+      matrix_match1[matrix_match1 != -1] <- 0
+      matrix_match1 <- -matrix_match1
+    } else if (.overlap_type == "ref_bigger_or_equal") {
+      matrix_match1 <- outer(X = query_start_, Y = ref_start0, FUN = "-")
+      matrix_match1[matrix_match1 >= -.query_start_tolerance] <- 1
+      matrix_match1[matrix_match1 != 1] <- 0
+    } else if (.overlap_type == "query_bigger") {
+      matrix_match1 <- outer(X = query_start_, Y = ref_start0, FUN = "-")
+      matrix_match1[matrix_match1 < .query_start_tolerance] <- -1
+      matrix_match1[matrix_match1 != -1] <- 0
+      matrix_match1 <- -matrix_match1
+    } else if (.overlap_type == "ref_bigger") {
+      matrix_match1 <- outer(X = query_start_, Y = ref_start0, FUN = "-")
+      matrix_match1[matrix_match1 > -.query_start_tolerance] <- 1
+      matrix_match1[matrix_match1 != 1] <- 0
+    }
+    
+    matrix_match0 <- matrix_match0 * matrix_match1
+    matrix_match1 <- NULL
+    
+    # end
+    if (.overlap_type == "exact") {
+      matrix_match1 <- abs(outer(X = query_end_, Y = ref_end0, FUN = "-"))
+      matrix_match1[matrix_match1 <= .query_start_tolerance] <- -1
+      matrix_match1[matrix_match1 != -1] <- 0
+      matrix_match1 <- -matrix_match1
+    } else if (.overlap_type == "query_bigger_or_equal") {
+      matrix_match1 <- outer(X = query_end_, Y = ref_end0, FUN = "-")
+      matrix_match1[matrix_match1 >= -.query_start_tolerance] <- 1
+      matrix_match1[matrix_match1 != 1] <- 0
+    } else if (.overlap_type == "ref_bigger_or_equal") {
+      matrix_match1 <- outer(X = query_end_, Y = ref_end0, FUN = "-")
+      matrix_match1[matrix_match1 <= .query_start_tolerance] <- -1
+      matrix_match1[matrix_match1 != -1] <- 0
+      matrix_match1 <- -matrix_match1
+    } else if (.overlap_type == "query_bigger") {
+      matrix_match1 <- outer(X = query_end_, Y = ref_end0, FUN = "-")
+      matrix_match1[matrix_match1 > -.query_start_tolerance] <- 1
+      matrix_match1[matrix_match1 != 1] <- 0
+    } else if (.overlap_type == "ref_bigger") {
+      matrix_match1 <- outer(X = query_end_, Y = ref_end0, FUN = "-")
+      matrix_match1[matrix_match1 < .query_start_tolerance] <- -1
+      matrix_match1[matrix_match1 != -1] <- 0
+      matrix_match1 <- -matrix_match1
+    }
+    
+    matrix_match0 <- matrix_match0 * matrix_match1
+    matrix_match1 <- NULL
+    
+    # strand
+    .ref_strand[!.ref_strand %in% c("+", "-")] <- "+"
+    matrix_match1 <- outer(X = as.character(query_strand_), Y = as.character(.ref_strand), FUN = "==") * 1
+    
+    # combine
+    matrix_match0 <- matrix_match0 * matrix_match1
+    
+    return(matrix_match0)
+    
+  }
+  
+  # END MAIN FUNCTION ###
+  
+  if (!is.numeric(query_start) | !is.numeric(ref_start) | !is.numeric(query_end) | !is.numeric(ref_end)) {
+    stop("non-numeric start/end values provided")
+  }
+  
+  if (length(unique(unlist(lapply(X = list(.query_chr, .query_start, .query_end, .query_strand), FUN = length)))) != 1) {
+    stop("query lengths are not equal")
+  }
+  
+  if (length(unique(unlist(lapply(X = list(.ref_chr, .ref_start, .ref_end, .ref_strand), FUN = length)))) != 1) {
+    stop("query lengths are not equal")
+  }
+  
+  # fix up start/end order
+  ref_start0 <- .ref_start
+  ref_end0 <- .ref_end
+  query_start0 <- .query_start
+  query_end0 <- .query_end
+  
+  ref_start0[.ref_start < .ref_end] <- .ref_end[.ref_start < .ref_end]
+  ref_end0[.ref_start < .ref_end] <- .ref_start[.ref_start < .ref_end]
+  query_start0[.query_start < .query_end] <- .query_end[.query_start < .query_end]
+  query_start0 <- query_start0 + .query_start_shift
+  query_end0[.query_start < .query_end] <- .query_start[.query_start < .query_end]
+  query_end0 <- query_end0 + .query_end_shift
+  
+  # CHUNKIFY
+  ## predicted mem usage in bytes, with some allowance
+  predicted_mem_usage <- as.numeric(length(.query_chr)) * as.numeric(length(.ref_chr)) * 64 * 1.1
+  number_of_chunks <- ceiling(predicted_mem_usage/.max_mem_usage)
+  
+  message("Number of chunks: ", number_of_chunks)
+  
+  # list_query_chr <- lapply(X = 1:number_of_chunks, FUN = function(a1) {return(.query_chr[parallel::splitIndices(nx = length(.query_chr), ncl = number_of_chunks)[[a1]]])} )
+  # list_query_start <- lapply(X = 1:number_of_chunks, FUN = function(a1) {return(query_start0[parallel::splitIndices(nx = length(.query_chr), ncl = number_of_chunks)[[a1]]])} )
+  # list_query_end <- lapply(X = 1:number_of_chunks, FUN = function(a1) {return(query_end0[parallel::splitIndices(nx = length(.query_chr), ncl = number_of_chunks)[[a1]]])} )
+  # list_query_strand <- lapply(X = 1:number_of_chunks, FUN = function(a1) {return(.query_strand[parallel::splitIndices(nx = length(.query_chr), ncl = number_of_chunks)[[a1]]])} )
+  # 
+  # list_result <- mapply(
+  #   "query_chr_L1" = list_query_chr, 
+  #   "query_start_L1" = list_query_start, 
+  #   "query_end_L1" = list_query_end, 
+  #   "query_strand_L1" = list_query_strand, 
+  #   "index" = 1:length(list_query_chr),
+  #   SIMPLIFY = FALSE,
+  #   FUN = function(query_chr_L1, query_start_L1, query_end_L1, query_strand_L1, index) {
+  #     
+  #     message("\rChunk progress: ", index, "/", number_of_chunks)
+  #     
+  #     return(f_(query_chr_ = query_chr_L1, query_start_ = query_start_L1, query_end_ = query_end_L1, query_strand_ = query_strand_L1))
+  #     
+  #   } )
+  
+  list_result <- mapply(
+    "a1" = lapply(X = 1:number_of_chunks, FUN = function(a1) {return(parallel::splitIndices(nx = length(.query_chr), ncl = number_of_chunks)[[a1]])} ),
+    "index" = 1:length(lapply(X = 1:number_of_chunks, FUN = function(a1) {return(parallel::splitIndices(nx = length(.query_chr), ncl = number_of_chunks)[[a1]])} )),
+    SIMPLIFY = FALSE,
+    FUN = function(a1, index) {
+      
+      cat(paste("\rChunk progress: ", index, "/", number_of_chunks, sep = ""))
+      
+      return(f_(query_chr_ = .query_chr[a1], query_start_ = query_start0[a1], query_end_ = query_end0[a1], query_strand_ = .query_strand[a1]))
+      
+    } )
+  
+  if (.result_mode == "list_of_match_matrices") {
+    return(list_result)
+  } else if (.result_mode == "list_of_indices") {
+    
+    list_of_indices_result <- lapply(
+      X = list_result,
+      FUN = function(a1) {
+        
+        a1 <- a1 > 0
+        
+        return(
+          lapply(
+            X = 1:nrow(a1),
+            FUN = function(b1) {
+              which(a1[b1, ])
+            } )
+        )
+        
+      } )
+    
+    return(unlist(list_of_indices_result, recursive = FALSE))
+    
+  }
+  
+}
+
+```
