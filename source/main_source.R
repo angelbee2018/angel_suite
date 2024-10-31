@@ -242,7 +242,7 @@ round_robin_pmap_callr <- function(
         print(vector_global_variables)
       }
       
-      temp_global_variables_uncollected <- setdiff(vector_global_variables, ls())
+      temp_global_variables_uncollected <- setdiff(vector_global_variables, ls(all.names = TRUE))
       
       # recursively traverse the frame stack from the bottom up until we collect everything
       temp_current_frame <- sys.nframe()
@@ -265,7 +265,7 @@ round_robin_pmap_callr <- function(
           
         }
         
-        temp_global_variables_uncollected <- setdiff(temp_global_variables_uncollected, ls())
+        temp_global_variables_uncollected <- setdiff(temp_global_variables_uncollected, ls(all.names = TRUE))
         
         temp_current_frame <- temp_current_frame - 1
         
@@ -315,7 +315,7 @@ round_robin_pmap_callr <- function(
             
           }
           
-          temp_vector_names_of_newly_discovered_nested_functions_for_inspection0 <- setdiff(temp_vector_names_of_newly_discovered_nested_functions_for_inspection0, ls())
+          temp_vector_names_of_newly_discovered_nested_functions_for_inspection0 <- setdiff(temp_vector_names_of_newly_discovered_nested_functions_for_inspection0, ls(all.names = TRUE))
           
           temp_current_frame <- temp_current_frame - 1
           
@@ -339,7 +339,7 @@ round_robin_pmap_callr <- function(
         
         if (.debug == TRUE) {
           message("all variables in environment right before writing to disk")
-          print(ls())
+          print(ls(all.names = TRUE))
         }
         
         vector_global_variables <- setdiff(vector_global_variables, temp_global_variables_uncollected)
@@ -413,7 +413,7 @@ round_robin_pmap_callr <- function(
       
       if (.debug == TRUE) {
         print("ls before pmap")
-        print(ls())
+        print(ls(all.names = TRUE))
       }
       
       obj <- purrr::pmap(
@@ -535,7 +535,7 @@ round_robin_pmap_callr <- function(
             
             if (.debug == TRUE) {
               print("ls before pmap")
-              print(ls())
+              print(ls(all.names = TRUE))
             }
             
             obj <- purrr::pmap(
@@ -766,7 +766,7 @@ callr_map <- function(
         print(vector_global_variables)
       }
       
-      temp_global_variables_uncollected <- setdiff(vector_global_variables, ls())
+      temp_global_variables_uncollected <- setdiff(vector_global_variables, ls(all.names = TRUE))
       
       # recursively traverse the frame stack from the bottom up until we collect everything
       temp_current_frame <- sys.nframe()
@@ -789,7 +789,7 @@ callr_map <- function(
           
         }
         
-        temp_global_variables_uncollected <- setdiff(temp_global_variables_uncollected, ls())
+        temp_global_variables_uncollected <- setdiff(temp_global_variables_uncollected, ls(all.names = TRUE))
         
         temp_current_frame <- temp_current_frame - 1
         
@@ -839,7 +839,7 @@ callr_map <- function(
             
           }
           
-          temp_vector_names_of_newly_discovered_nested_functions_for_inspection0 <- setdiff(temp_vector_names_of_newly_discovered_nested_functions_for_inspection0, ls())
+          temp_vector_names_of_newly_discovered_nested_functions_for_inspection0 <- setdiff(temp_vector_names_of_newly_discovered_nested_functions_for_inspection0, ls(all.names = TRUE))
           
           temp_current_frame <- temp_current_frame - 1
           
@@ -863,7 +863,7 @@ callr_map <- function(
         
         if (.debug == TRUE) {
           message("all variables in environment right before writing to disk")
-          print(ls())
+          print(ls(all.names = TRUE))
         }
         
         vector_global_variables <- setdiff(vector_global_variables, temp_global_variables_uncollected)
@@ -922,7 +922,7 @@ callr_map <- function(
   for (..i in 1:.no_workers) {
     
     # define chunk for the target of mapping operation
-    .x_current <- .x[parallel::splitIndices(nx = map_length, ncl = .no_chunks)[[..i]]]
+    .x_current <- .x[parallel::splitIndices(nx = length(.x), ncl = .no_chunks)[[..i]]]
     
     # define function to be fun
     function_to_run <- function(.x_current, .f, .globals_save_dir, .intermediate_files_dir, .job_name, .progress, .debug, vector_global_variables, vector_global_packages, ..i) {
@@ -937,7 +937,7 @@ callr_map <- function(
       
       if (.debug == TRUE) {
         print("ls before map")
-        print(ls())
+        print(ls(all.names = TRUE))
       }
       
       obj <- purrr::map(
@@ -1044,7 +1044,7 @@ callr_map <- function(
         for (..i in (new_map_start):min(c(new_map_end, map_length))) {
           
           # define chunk for the target of mapping operation
-          .x_current <- .x[parallel::splitIndices(nx = map_length, ncl = .no_chunks)[[..i]]]
+          .x_current <- .x[parallel::splitIndices(nx = length(.x), ncl = .no_chunks)[[..i]]]
           
           # define function to be fun
           function_to_run <- function(.x_current, .f, .globals_save_dir, .intermediate_files_dir, .job_name, .progress, .debug, vector_global_variables, vector_global_packages, ..i) {
@@ -1059,7 +1059,7 @@ callr_map <- function(
             
             if (.debug == TRUE) {
               print("ls before map")
-              print(ls())
+              print(ls(all.names = TRUE))
             }
             
             obj <- purrr::map(
@@ -1290,7 +1290,7 @@ callr_map2 <- function(
         print(vector_global_variables)
       }
       
-      temp_global_variables_uncollected <- setdiff(vector_global_variables, ls())
+      temp_global_variables_uncollected <- setdiff(vector_global_variables, ls(all.names = TRUE))
       
       # recursively traverse the frame stack from the bottom up until we collect everything
       temp_current_frame <- sys.nframe()
@@ -1313,7 +1313,7 @@ callr_map2 <- function(
           
         }
         
-        temp_global_variables_uncollected <- setdiff(temp_global_variables_uncollected, ls())
+        temp_global_variables_uncollected <- setdiff(temp_global_variables_uncollected, ls(all.names = TRUE))
         
         temp_current_frame <- temp_current_frame - 1
         
@@ -1363,7 +1363,7 @@ callr_map2 <- function(
             
           }
           
-          temp_vector_names_of_newly_discovered_nested_functions_for_inspection0 <- setdiff(temp_vector_names_of_newly_discovered_nested_functions_for_inspection0, ls())
+          temp_vector_names_of_newly_discovered_nested_functions_for_inspection0 <- setdiff(temp_vector_names_of_newly_discovered_nested_functions_for_inspection0, ls(all.names = TRUE))
           
           temp_current_frame <- temp_current_frame - 1
           
@@ -1387,7 +1387,7 @@ callr_map2 <- function(
         
         if (.debug == TRUE) {
           message("all variables in environment right before writing to disk")
-          print(ls())
+          print(ls(all.names = TRUE))
         }
         
         vector_global_variables <- setdiff(vector_global_variables, temp_global_variables_uncollected)
@@ -1446,8 +1446,8 @@ callr_map2 <- function(
   for (..i in 1:.no_workers) {
     
     # define chunk for the target of mapping operation
-    .x_current <- .x[parallel::splitIndices(nx = map_length, ncl = .no_chunks)[[..i]]]
-    .y_current <- .y[parallel::splitIndices(nx = map_length, ncl = .no_chunks)[[..i]]]
+    .x_current <- .x[parallel::splitIndices(nx = length(.x), ncl = .no_chunks)[[..i]]]
+    .y_current <- .y[parallel::splitIndices(nx = length(.y), ncl = .no_chunks)[[..i]]]
     
     # define function to be fun
     function_to_run <- function(.x_current, .y_current, .f, .globals_save_dir, .intermediate_files_dir, .job_name, .progress, .debug, vector_global_variables, vector_global_packages, ..i) {
@@ -1462,7 +1462,7 @@ callr_map2 <- function(
       
       if (.debug == TRUE) {
         print("ls before map")
-        print(ls())
+        print(ls(all.names = TRUE))
       }
       
       obj <- purrr::map2(
@@ -1570,8 +1570,8 @@ callr_map2 <- function(
         for (..i in (new_map_start):min(c(new_map_end, map_length))) {
           
           # define chunk for the target of mapping operation
-          .x_current <- .x[parallel::splitIndices(nx = map_length, ncl = .no_chunks)[[..i]]]
-          .y_current <- .y[parallel::splitIndices(nx = map_length, ncl = .no_chunks)[[..i]]]
+          .x_current <- .x[parallel::splitIndices(nx = length(.x), ncl = .no_chunks)[[..i]]]
+          .y_current <- .y[parallel::splitIndices(nx = length(.y), ncl = .no_chunks)[[..i]]]
           
           # define function to be fun
           function_to_run <- function(.x_current, .y_current, .f, .globals_save_dir, .intermediate_files_dir, .job_name, .progress, .debug, vector_global_variables, vector_global_packages, ..i) {
@@ -1586,7 +1586,7 @@ callr_map2 <- function(
             
             if (.debug == TRUE) {
               print("ls before map")
-              print(ls())
+              print(ls(all.names = TRUE))
             }
             
             obj <- purrr::map2(
@@ -1862,7 +1862,7 @@ callr_insulator <- function(
         print(vector_global_variables)
       }
       
-      temp_global_variables_uncollected <- setdiff(vector_global_variables, ls())
+      temp_global_variables_uncollected <- setdiff(vector_global_variables, ls(all.names = TRUE))
       
       # recursively traverse the frame stack from the bottom up until we collect everything
       temp_current_frame <- sys.nframe()
@@ -1885,7 +1885,17 @@ callr_insulator <- function(
           
         }
         
-        temp_global_variables_uncollected <- setdiff(temp_global_variables_uncollected, ls())
+        if (.debug == TRUE) {
+          print("ls_1")
+          print(ls(all.names = TRUE))
+        }
+        
+        temp_global_variables_uncollected <- setdiff(temp_global_variables_uncollected, ls(all.names = TRUE))
+        
+        if (.debug == TRUE) {
+          print("temp_global_variables_uncollected")
+          print(temp_global_variables_uncollected)
+        }
         
         temp_current_frame <- temp_current_frame - 1
         
@@ -1935,7 +1945,7 @@ callr_insulator <- function(
             
           }
           
-          temp_vector_names_of_newly_discovered_nested_functions_for_inspection0 <- setdiff(temp_vector_names_of_newly_discovered_nested_functions_for_inspection0, ls())
+          temp_vector_names_of_newly_discovered_nested_functions_for_inspection0 <- setdiff(temp_vector_names_of_newly_discovered_nested_functions_for_inspection0, ls(all.names = TRUE))
           
           temp_current_frame <- temp_current_frame - 1
           
@@ -1959,7 +1969,7 @@ callr_insulator <- function(
         
         if (.debug == TRUE) {
           message("all variables in environment right before writing to disk")
-          print(ls())
+          print(ls(all.names = TRUE))
         }
         
         vector_global_variables <- setdiff(vector_global_variables, temp_global_variables_uncollected)
@@ -1993,7 +2003,7 @@ callr_insulator <- function(
     
     if (.debug == TRUE) {
       print("ls before pmap")
-      print(ls())
+      print(ls(all.names = TRUE))
     }
 
     if (is.call(.f) == TRUE) {
@@ -2866,7 +2876,7 @@ plot_UMAP_for_timepoint_and_replicate_plotly <- function(transposed_matrixtable,
 # protected colname: "condition_names", "replicate_names"
 # each row is a SAMPLE, each column is a feature
 # provide table_matrix as a df with rownames named after each sample
-plot_tSNE_condition_and_replicate_plotly <- function(table_matrix, condition_order = NULL, replicate_order = NULL, tibble_metadata = NULL, plot_shapes = TRUE, centroid_labels = TRUE, point_size = 5, centroid_label_size = 4, legend_position = "none", PCA_depths_y = NULL, PCA_depths_x = NULL, input_colour_limits = NULL, input_colour_value = NULL, save_dir = NULL, save_name = NULL, graph_title = NULL, width = 10, height = 10, .seed = 8) {
+plot_tSNE_condition_and_replicate_plotly <- function(table_matrix, condition_order = NULL, replicate_order = NULL, tibble_metadata = NULL, plot_shapes = TRUE, centroid_labels = TRUE, point_size = 5, centroid_label_size = 4, legend_position = "none", PCA_depths_y = NULL, PCA_depths_x = NULL, input_colour_limits = NULL, input_colour_value = NULL, save_dir = NULL, save_name = NULL, graph_title = NULL, width = 10, height = 10, .seed = 8, .print_plot = FALSE, .perplexity = NULL, .theta = NULL) {
   
   # DEBUG ###
   # table_matrix = tibble_matrix_absolute_psi_in_sample_replicate_format %>% na.omit %>% t %>% .[, gsub(x = rownames(.), pattern = "^(.*)\\|.*$", replacement = "\\1") %in% tibble_sharp_cluster_mapping$condition_names]
@@ -2892,7 +2902,7 @@ plot_tSNE_condition_and_replicate_plotly <- function(table_matrix, condition_ord
   set.seed(.seed)
   
   df_tsne_result <- callr_insulator(.f = quote( 
-    Rtsne::Rtsne(X = table_matrix %>% unique, perplexity = 1, check_duplicates = FALSE, verbose = TRUE, num_threads = 0) 
+    Rtsne::Rtsne(X = table_matrix %>% unique, check_duplicates = FALSE, verbose = TRUE, num_threads = 0, perplexity = .perplexity, theta = .theta) 
   ) ) %>% 
     .$Y %>% 
     as.data.frame() %>%
@@ -2935,6 +2945,10 @@ plot_tSNE_condition_and_replicate_plotly <- function(table_matrix, condition_ord
     ylab("tSNE_2") +
     theme_bw() +
     theme(text = element_text(family = "Helvetica"), legend.position = legend_position)
+  
+  if (.print_plot == TRUE) {
+    print(ggplot_plot)
+  }
   
   plotly::ggplotly(
     p = ggplot_plot,
@@ -3043,5 +3057,69 @@ seqsplitter <- function(x, n, keep_remainders = TRUE) {
   }
   
   return(list_result)
+  
+}
+
+## takes a tibble of x and y coords along with a grouping label. colnames: x, y, group.
+## number_of_output_datapoints: number of points to specify in the output curve
+
+## The function will automatically chop up the max/min x-values and loop through each of these output datapoints. 
+## for each datapoint, we loop through each group
+## for each group, compute the linearly interpolated y-value based on the closest value to the left/right of the datapoint.
+## Finally, average the interpolated value for each group
+sum_multiple_curves_from_datapoints <- function(input_tibble = NULL, number_of_output_datapoints = NULL, ncores_L1 = 2, ncores_L2 = 1) {
+  
+  # DEBUG ###
+  # input_tibble <- tibble(
+  # "y" = purrr::map(.x = multiclass.roc_result$rocs, .f = ~.x$sensitivities) %>% unlist, 
+  # "x" = purrr::map(.x = multiclass.roc_result$rocs, .f = ~(1 - .x$specificities)) %>% unlist, 
+  # "group" = purrr::imap(.x = multiclass.roc_result$rocs , .f = ~rep(.y, times = length(.x$specificities))) %>% unlist %>% paste("g", ., sep = "")) 
+  # number_of_output_datapoints <- 100
+  # ncores_L1 <- 4
+  # ncores_L2 <- 1
+  ###########
+  
+  # split tibble by group
+  input_tibble_split_by_group <- input_tibble %>% dplyr::group_split(group) %>% purrr::set_names(nm = purrr::map(.x = ., .f = ~.x$group %>% unique) %>% unlist)
+  
+  # split interval into desired output datapoints
+  vector_output_x_coords <- seq(from = min(input_tibble$x), to = max(input_tibble$y), length.out = number_of_output_datapoints)
+  
+  plan(list(tweak(multicore, workers = ncores_L1),
+            tweak(multicore, workers = ncores_L2)))
+  
+  # loop through each output datapoint and linearly interpolate
+  list_averaged_y_values_at_each_output_datapoint <- furrr::future_map(
+    .x = vector_output_x_coords,
+    .f = function(a1) {
+      
+      # DEBUG ###
+      # a1 <- vector_output_x_coords[[1]]
+      ###########
+      
+      list_interpolated_y_values_per_group <- furrr::future_map(
+        .x = input_tibble_split_by_group,
+        .f = function(b1) {
+          
+          approx(x = b1$x, y = b1$y, xout = a1, n = 1, ties = mean) %>%
+            .$y %>% 
+            return
+          
+        } )
+      
+      # return the average of interpolated y values
+      return(
+        mean(list_interpolated_y_values_per_group %>% unlist)
+      )
+      
+    }, .progress = TRUE )
+  
+  # return tibble of averaged values
+  return(
+    tibble(
+      "x" = vector_output_x_coords,
+      "y" = list_averaged_y_values_at_each_output_datapoint %>% unlist
+    )
+  )
   
 }
