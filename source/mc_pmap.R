@@ -434,7 +434,7 @@ mc_pmap <- function(
       # spew out the last 20 status lines for easy debugging
       # lapply(X = names(vector_exit_codes)[vector_exit_codes > 0], FUN = function(a1) {warning(paste(a1, " stdout (last 20 lines)", sep = "")); warning(system(command = paste("tail -n 20 ", paste(.status_messages_dir, "/", a1, "_stdout.txt", sep = ""), sep = ""))); warning(paste(a1, " stderr (last 20 lines)", sep = "")); warning(system(command = paste("tail -n 20 ", paste(.status_messages_dir, "/", a1, "_stderr.txt", sep = ""), sep = "")))} )
       options(warning.length = 8170)
-      stop(paste("Exit status failure received on chunks: ", paste(gsub(x = names(vector_exit_codes[vector_exit_codes > 0]), pattern = "chunk_", replacement = ""), collapse = ","), ". \n\nPlease run the following command in order to view the outputs of each worker: \n", "for i in ", paste(names(global_vector_exit_codes[global_vector_exit_codes > 0]), collapse = " "), " ; do tail -n 20 ", "\"/tmp/RtmpJik75R_173142183144465\"", "/$i\"_stdout.txt\" ", "\"/tmp/RtmpJik75R_173142183144465\"", "/$i\"_stderr.txt\"; done", sep = ""))
+      stop(paste("Exit status failure received on chunks: ", paste(gsub(x = names(vector_exit_codes[vector_exit_codes > 0]), pattern = "chunk_", replacement = ""), collapse = ","), ". \n\nPlease run the following command in order to view the outputs of each worker: \n", "for i in ", paste(names(vector_exit_codes[vector_exit_codes > 0]), collapse = " "), " ; do tail -n 20 ", "\"", .status_messages_dir, "\"", "/$i\"_stdout.txt\" ", "\"", .status_messages_dir, "\"", "/$i\"_stderr.txt\"; done", sep = ""))
       # } else {
       # gotta leave the process hanging for a bit so we can verify it finished correctly. THEN we manually kill the child.
       # lapply(X = list_workers[names(vector_exit_codes)[vector_exit_codes == 0]], FUN = function(a1) {system(paste("kill -9 ", a1$pid, sep = ""))} )
@@ -469,7 +469,7 @@ mc_pmap <- function(
           .l_current <- lapply(X = .l, FUN = function(a1) {return(a1[parallel::splitIndices(nx = length(.l[[1]]), ncl = .no_chunks)[[..i]]])} )
           
           .status_messages_dir_stdout <- paste(.status_messages_dir, "/chunk_", ..i, "_stdout.txt", sep = "")
-    .status_messages_dir_stderr <- paste(.status_messages_dir, "/chunk_", ..i, "_stderr.txt", sep = "")
+          .status_messages_dir_stderr <- paste(.status_messages_dir, "/chunk_", ..i, "_stderr.txt", sep = "")
           
           # define function to be fun
           function_to_run <- function(.l_current, .f, .globals_save_dir, .intermediate_files_dir, .job_name, .progress, .debug, ..i, .status_messages_dir_stdout, .status_messages_dir_stderr) {
@@ -637,7 +637,7 @@ mc_pmap <- function(
     # spew out the last 20 status lines for easy debugging
     # lapply(X = names(vector_exit_codes)[vector_exit_codes > 0], FUN = function(a1) {warning(paste(a1, " stdout (last 20 lines)", sep = "")); warning(system(command = paste("tail -n 20 ", paste(.status_messages_dir, "/", a1, "_stdout.txt", sep = ""), sep = ""))); warning(paste(a1, " stderr (last 20 lines)", sep = "")); warning(system(command = paste("tail -n 20 ", paste(.status_messages_dir, "/", a1, "_stderr.txt", sep = ""), sep = "")))} )
     options(warning.length = 8170)
-    stop(paste("Exit status failure received on chunks: ", paste(gsub(x = names(vector_exit_codes[vector_exit_codes > 0]), pattern = "chunk_", replacement = ""), collapse = ","), ". \n\nPlease run the following command in order to view the outputs of each worker: \n", "for i in ", paste(names(global_vector_exit_codes[global_vector_exit_codes > 0]), collapse = " "), " ; do tail -n 20 ", "\"/tmp/RtmpJik75R_173142183144465\"", "/$i\"_stdout.txt\" ", "\"/tmp/RtmpJik75R_173142183144465\"", "/$i\"_stderr.txt\"; done", sep = ""))
+    stop(paste("Exit status failure received on chunks: ", paste(gsub(x = names(vector_exit_codes[vector_exit_codes > 0]), pattern = "chunk_", replacement = ""), collapse = ","), ". \n\nPlease run the following command in order to view the outputs of each worker: \n", "for i in ", paste(names(vector_exit_codes[vector_exit_codes > 0]), collapse = " "), " ; do tail -n 20 ", "\"", .status_messages_dir, "\"", "/$i\"_stdout.txt\" ", "\"", .status_messages_dir, "\"", "/$i\"_stderr.txt\"; done", sep = ""))
     # } else {
     # gotta leave the process hanging for a bit so we can verify it finished correctly. THEN we manually kill the child.
     # lapply(X = list_workers[names(vector_exit_codes)[vector_exit_codes == 0]], FUN = function(a1) {system(paste("kill -9 ", a1$pid, sep = ""))} )
