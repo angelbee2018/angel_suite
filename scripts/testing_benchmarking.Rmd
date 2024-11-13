@@ -67,7 +67,8 @@ test <- round_robin_pmap_callr(
 
 library(furrr)
 library(purrr)
-plan(list(tweak(multisession, workers = 4)))
+options(future.globals.maxSize = 1500000000000, future.fork.enable = TRUE)
+plan(list(tweak(multicore, workers = 96)))
 
 boot_df <- function(x) x[sample(nrow(x), replace = T), ]
 rsquared <- function(mod) summary(mod)$r.squared
@@ -77,11 +78,11 @@ boot_lm <- function(i) {
 
 system.time(map(1:5000, boot_lm))
 
-system.time(future_map(1:50000, boot_lm)) %>% suppressMessages() %>% suppressWarnings()
+system.time(future_map(1:500000, boot_lm)) %>% suppressMessages() %>% suppressWarnings()
 
-system.time(round_robin_pmap_callr(.l = list("a1" = 1:50000), .num_workers = 4, .no_chunks = 4, .f = function(a1) {boot_lm()}))
+system.time(round_robin_pmap_callr(.l = list("a1" = 1:5000), .num_workers = 32, .no_chunks = 32, .f = function(a1) {boot_lm()}))
 
-system.time(mc_pmap(.l = list("a1" = 1:5000), .no_workers = 32, .no_chunks = 32, .f = function(a1) {boot_lm()}))
+system.time(mc_pmap(.l = list("a1" = 1:500000), .no_workers = 96, .no_chunks = 96, .f = function(a1) {boot_lm()})) %>% suppressMessages() %>% suppressWarnings()
 
 system.time(
   round_robin_pmap_callr(
