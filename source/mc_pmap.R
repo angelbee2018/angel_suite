@@ -25,13 +25,11 @@ mc_pmap <- function(
   # .f = function(b1) {set.seed(b1);Sys.sleep(runif(n = 1, min = 3, max = 5)); return(list(LETTERS[b1]))}
   # .debug <- FALSE
   ###########
-
-  for (i in c("parallel", "utils", "lubridate", "qs")) { 
-    
+  
+  for (i in c("parallel", "utils", "lubridate", "qs")) {
     if (require(i, character.only = TRUE) == FALSE) {
       stop(paste("Package \"", i, "\" not found. Please install using `install.packages` or `BiocManager::install`", sep = ""))
     }
-    
   }
   
   if (Sys.info()["sysname"] == "Linux") {
@@ -81,7 +79,9 @@ mc_pmap <- function(
   message(paste("Status messages will be saved to disk at: ", .status_messages_dir, sep = ""))
   
   # check if all the list elements are of equal length
-  map_length <- unique(unlist(lapply(X = .l, FUN = function(a1) {return(length(a1))} )))
+  .list_length <- unique(unlist(lapply(X = .l, FUN = function(a1) {return(length(a1))} )))
+  
+  map_length <- .list_length
   
   if (.no_workers > map_length) {
     .no_workers <- map_length
@@ -112,48 +112,52 @@ mc_pmap <- function(
   
   map_length <- .no_chunks
   
+  # .l_chunked <- lapply(X = 1:.no_chunks, FUN = function(a1) {return(lapply(X = .l, FUN = function(b1) {return(b1[parallel::splitIndices(nx = .list_length, ncl = .no_chunks)[[a1]]])} ))} )
+  
   # END CHUNKING ###
-
-# define function to be fun
-          function_to_run <- function(.l_current, .f, .globals_save_dir, .intermediate_files_dir, .job_name, .progress, .debug, ..i, .status_messages_dir_stdout, .status_messages_dir_stderr) {
-            
-            writeLines(text = "", con = paste(.intermediate_files_dir, "/", .job_name, "_chunk_", ..i, "_exitmsg.txt", sep = ""))
-            
-            .status_messages_dir_stdout_con <- file(.status_messages_dir_stdout, open = "a")
-            sink(file = .status_messages_dir_stdout_con, split = TRUE, append = FALSE, type = "output")
-            
-            .status_messages_dir_stderr_con <- file(.status_messages_dir_stderr, open = "a")
-            sink(file = .status_messages_dir_stderr_con, split = FALSE, append = FALSE, type = "message")
-            
-            # lapply(vector_global_packages, library, character.only = TRUE)
-            # for (i in vector_global_variables) {
-            #   assign(x = i, value = qs::qread(file = paste(.globals_save_dir, i, ".qs", sep = "")), envir = .GlobalEnv)
-            # }
-            
-            # load(file = .globals_save_dir, envir = .GlobalEnv)
-            
-            if (.debug == TRUE) {
-              print("ls before pmap")
-              print(ls())
-            }
-            
-            obj <- purrr::pmap(
-              .l = .l_current,
-              .f = .f,
-              .progress = .progress
-            )
-            
-            # saveRDS(object = obj, file = paste(.intermediate_files_dir, "/", .job_name, "_chunk_", ..i, ".rds", sep = ""))
-            qs::qsave(x = obj, file = paste(.intermediate_files_dir, "/", .job_name, "_chunk_", ..i, ".qs", sep = ""))
-            
-            writeLines(text = "GRACEFUL EXIT", con = paste(.intermediate_files_dir, "/", .job_name, "_chunk_", ..i, "_exitmsg.txt", sep = ""))
-            
-            system(paste("kill -9 ", Sys.getpid(), sep = ""))
-            
-          }
+  
+  # define function to be fun
+  function_to_run <- function(.l_current, .f, .globals_save_dir, .intermediate_files_dir, .job_name, .progress, .debug, ..i, .status_messages_dir_stdout, .status_messages_dir_stderr) {
     
+    writeLines(text = "", con = paste(.intermediate_files_dir, "/", .job_name, "_chunk_", ..i, "_exitmsg.txt", sep = ""))
+    
+    .status_messages_dir_stdout_con <- file(.status_messages_dir_stdout, open = "a")
+    sink(file = .status_messages_dir_stdout_con, split = TRUE, append = FALSE, type = "output")
+    
+    .status_messages_dir_stderr_con <- file(.status_messages_dir_stderr, open = "a")
+    sink(file = .status_messages_dir_stderr_con, split = FALSE, append = FALSE, type = "message")
+    
+    # lapply(vector_global_packages, library, character.only = TRUE)
+    # for (i in vector_global_variables) {
+    #   assign(x = i, value = qs::qread(file = paste(.globals_save_dir, i, ".qs", sep = "")), envir = .GlobalEnv)
+    # }
+    
+    # load(file = .globals_save_dir, envir = .GlobalEnv)
+    
+    if (.debug == TRUE) {
+      print("ls before pmap")
+      print(ls())
+    }
+    
+    obj <- purrr::pmap(
+      .l = .l_current,
+      .f = .f,
+      .progress = .progress
+    )
+    
+    # saveRDS(object = obj, file = paste(.intermediate_files_dir, "/", .job_name, "_chunk_", ..i, ".rds", sep = ""))
+    qs::qsave(x = obj, file = paste(.intermediate_files_dir, "/", .job_name, "_chunk_", ..i, ".qs", sep = ""))
+    
+    writeLines(text = "GRACEFUL EXIT", con = paste(.intermediate_files_dir, "/", .job_name, "_chunk_", ..i, "_exitmsg.txt", sep = ""))
+    
+    system(paste("kill -9 ", Sys.getpid(), sep = ""))
+    
+  }
+  
   message("Commencing computation")
-      
+  
+  # INITIALISATION BEFORE LOOP
+  
   # keep track of iteration progress
   ## initialise
   current_map_index <- 0
@@ -164,76 +168,80 @@ mc_pmap <- function(
   
   vector_exit_codes <- NULL
   
+  vector_names_of_chunks_alive <- character()
+  
   vector_logical_indices_workers_completed_reported <- rep(x = FALSE, times = map_length)
   names(vector_logical_indices_workers_completed_reported) <- paste("chunk_", 1:map_length, sep = "")
   
   vector_current_chunks_spliced <- numeric()
   
+  # END INITIALISATION ###
+  
   while(all(vector_exit_codes <= 0)) {
     
     # formulate our own exit codes
-
+    
     if (current_map_index > 0) {
-
-        ## retrieve system process status
-    vec_topresult <- trimws(system(command = "ps -eo pid,s", intern =  TRUE))
-    df_topresult <- as.data.frame(t(as.data.frame(strsplit(vec_topresult[2:length(vec_topresult)], split = "\\s+"))))
-    colnames(df_topresult) <- unlist(strsplit(vec_topresult[1], split = "\\s+"))
-    
-    ## retrieve our list of assigned pids per chunk
-    df_pidtable <- data.frame("chunkname" = names(list_workers), "PID" = unlist(lapply(X = list_workers, FUN = function(a1) {a1$pid})))
-
-    ## deal with the chunks we expect to be still running or not
-    if (length(vector_current_chunks_spliced) > 0) {
-      vector_names_of_current_chunks_spliced <- paste("chunk_", vector_current_chunks_spliced, sep = "")
       
-      if (.debug == TRUE) {
-        global_vector_current_chunks_spliced <<- vector_current_chunks_spliced
-      }
+      ## retrieve system process status
+      vec_topresult <- trimws(system(command = "ps -eo pid,s", intern =  TRUE))
+      df_topresult <- as.data.frame(t(as.data.frame(strsplit(vec_topresult[2:length(vec_topresult)], split = "\\s+"))))
+      colnames(df_topresult) <- unlist(strsplit(vec_topresult[1], split = "\\s+"))
       
-    } else {
-      vector_names_of_current_chunks_spliced <- character()
-    }
-    
-    # tibble_process_status <- dplyr::left_join(df_pidtable, df_topresult, by = "PID")
-    df_process_status <- merge(x = df_pidtable, y = df_topresult, by = "PID", all.x = TRUE)
-    
-    df_process_status[is.na(df_process_status$S), "S"] <- "missing"
-    df_process_status$isalive <- !grepl(x = df_process_status$S, pattern = "Z|X|T|t|missing", ignore.case = FALSE)
-    
-    vector_chunks_alive <- df_process_status[df_process_status$isalive == TRUE, ]$chunkname
-    
-    vector_exit_codes <- mapply(
-      "a1" = list_workers,
-      "a2" = names(list_workers),
-      "a3" = df_process_status$isalive,
-      FUN = function(a1, a2, a3) {
+      ## retrieve our list of assigned pids per chunk
+      df_pidtable <- data.frame("chunkname" = names(list_workers), "PID" = unlist(lapply(X = list_workers, FUN = function(a1) {a1$pid})))
+      
+      ## deal with the chunks we expect to be still running or not
+      if (length(vector_current_chunks_spliced) > 0) {
+        vector_names_of_current_chunks_spliced <- paste("chunk_", vector_current_chunks_spliced, sep = "")
         
-        # logical_process_is_alive <- type.convert(system(command = paste("ps -r ", a1$pid, " | wc -l", sep = ""), intern = TRUE), as.is = TRUE) > 1
-        
-        logical_process_is_alive <- a3
-        
-        exitmsg_path <- paste(.intermediate_files_dir, "/", .job_name, "_", a2, "_exitmsg.txt", sep = "")
-        
-        if (file.exists(exitmsg_path)) {
-          exitmsg <- readLines(con = exitmsg_path)
-          
-          if (exitmsg == "GRACEFUL EXIT" | a2 %in% vector_names_of_current_chunks_spliced) {
-            return(0)
-          } else if (logical_process_is_alive == TRUE) {
-            return(-1)
-          } else if (logical_process_is_alive == FALSE) {
-            return(1)
-          }
-          
-        } else {
-          return("2")
+        if (.debug == TRUE) {
+          global_vector_current_chunks_spliced <<- vector_current_chunks_spliced
         }
         
-      } )
-    
-    names(vector_exit_codes) <- names(list_workers)
-        
+      } else {
+        vector_names_of_current_chunks_spliced <- character()
+      }
+      
+      # tibble_process_status <- dplyr::left_join(df_pidtable, df_topresult, by = "PID")
+      df_process_status <- merge(x = df_pidtable, y = df_topresult, by = "PID", all.x = TRUE)
+      
+      df_process_status[is.na(df_process_status$S), "S"] <- "missing"
+      df_process_status$isalive <- !grepl(x = df_process_status$S, pattern = "Z|X|T|t|missing", ignore.case = FALSE)
+      
+      vector_names_of_chunks_alive <- df_process_status[df_process_status$isalive == TRUE, ]$chunkname
+      
+      vector_exit_codes <- mapply(
+        "a1" = list_workers,
+        "a2" = names(list_workers),
+        "a3" = df_process_status$isalive,
+        FUN = function(a1, a2, a3) {
+          
+          # logical_process_is_alive <- type.convert(system(command = paste("ps -r ", a1$pid, " | wc -l", sep = ""), intern = TRUE), as.is = TRUE) > 1
+          
+          logical_process_is_alive <- a3
+          
+          exitmsg_path <- paste(.intermediate_files_dir, "/", .job_name, "_", a2, "_exitmsg.txt", sep = "")
+          
+          if (file.exists(exitmsg_path)) {
+            exitmsg <- readLines(con = exitmsg_path)
+            
+            if (exitmsg == "GRACEFUL EXIT" | a2 %in% vector_names_of_current_chunks_spliced) {
+              return(0)
+            } else if (logical_process_is_alive == TRUE) {
+              return(-1)
+            } else if (logical_process_is_alive == FALSE) {
+              return(1)
+            }
+            
+          } else {
+            return("2")
+          }
+          
+        } )
+      
+      names(vector_exit_codes) <- names(list_workers)
+      
     } else {
       vector_exit_codes <- numeric()
     }   
@@ -243,7 +251,7 @@ mc_pmap <- function(
       print(df_process_status)
       
       global_df_process_status <<- df_process_status
-      global_vector_chunks_alive <<- vector_chunks_alive
+      global_vector_names_of_chunks_alive <<- vector_names_of_chunks_alive
       global_vector_names_of_current_chunks_spliced <<- vector_names_of_current_chunks_spliced
       global_vector_exit_codes <<- vector_exit_codes
       global_list_workers <<- list_workers
@@ -254,7 +262,7 @@ mc_pmap <- function(
     if (any(vector_exit_codes > 0)) {
       print("Process status per chunk")
       print(vector_exit_codes)
-      lapply(X = list_workers, FUN = function(a1) {system(paste("kill -9 ", a1$pid, sep = ""))} )
+      suppressWarnings(suppressMessages(lapply(X = list_workers, FUN = function(a1) {system(paste("kill -9 ", a1$pid, sep = ""), ignore.stdout = TRUE, ignore.stderr = TRUE)} )))
       # spew out the last 20 status lines for easy debugging
       # lapply(X = names(vector_exit_codes)[vector_exit_codes > 0], FUN = function(a1) {warning(paste(a1, " stdout (last 20 lines)", sep = "")); warning(system(command = paste("tail -n 20 ", paste(.status_messages_dir, "/", a1, "_stdout.txt", sep = ""), sep = ""))); warning(paste(a1, " stderr (last 20 lines)", sep = "")); warning(system(command = paste("tail -n 20 ", paste(.status_messages_dir, "/", a1, "_stderr.txt", sep = ""), sep = "")))} )
       options(warning.length = 8170)
@@ -279,30 +287,31 @@ mc_pmap <- function(
     } else if (flag_completion == FALSE) {
       
       # add more processes as long as we need to fill up worker slots and we're not at the end of the list yet
-      number_of_processes_alive <- length(vector_chunks_alive)
+      number_of_processes_alive <- length(vector_names_of_chunks_alive)
       if (number_of_processes_alive < .no_workers & current_map_index < map_length) {
         
         new_map_start <- current_map_index + 1
         new_map_end <- min(c(current_map_index + .no_workers - number_of_processes_alive, map_length))
         
         for (..i in (new_map_start):min(c(new_map_end, map_length))) {
-                    
+          
           # define chunk for the target of mapping operation
-          .l_current <- lapply(X = .l, FUN = function(a1) {return(a1[parallel::splitIndices(nx = length(.l[[1]]), ncl = .no_chunks)[[..i]]])} )
+          .l_current <- lapply(X = .l, FUN = function(a1) {return(a1[parallel::splitIndices(nx = .list_length, ncl = .no_chunks)[[..i]]])} )
+          # .l_current <- .l_chunked[[..i]]
           
           .status_messages_dir_stdout <- paste(.status_messages_dir, "/chunk_", ..i, "_stdout.txt", sep = "")
           .status_messages_dir_stderr <- paste(.status_messages_dir, "/chunk_", ..i, "_stderr.txt", sep = "")
           
           list_workers[[..i]] <- parallel:::mcparallel(
-              expr = function_to_run(".l_current" = .l_current, ".f" = .f, ".globals_save_dir" = .globals_save_dir, ".intermediate_files_dir" = .intermediate_files_dir, ".job_name" = .job_name, ".progress" = .progress, ".debug" = .debug, "..i" = ..i, ".status_messages_dir_stdout" = .status_messages_dir_stdout, ".status_messages_dir_stderr" = .status_messages_dir_stderr), 
-              detached = TRUE
-            )
-                    
+            expr = function_to_run(".l_current" = .l_current, ".f" = .f, ".globals_save_dir" = .globals_save_dir, ".intermediate_files_dir" = .intermediate_files_dir, ".job_name" = .job_name, ".progress" = .progress, ".debug" = .debug, "..i" = ..i, ".status_messages_dir_stdout" = .status_messages_dir_stdout, ".status_messages_dir_stderr" = .status_messages_dir_stderr), 
+            detached = TRUE
+          )
+          
           names(list_workers)[..i] <- paste("chunk_", ..i, sep = "")
           
         }
-
-          current_map_index <- length(list_workers)
+        
+        current_map_index <- length(list_workers)
         
       }
       
@@ -379,7 +388,7 @@ mc_pmap <- function(
   if (any(vector_exit_codes > 0)) {
     print("Process status per chunk")
     print(vector_exit_codes)
-    lapply(X = list_workers, FUN = function(a1) {system(paste("kill -9 ", a1$pid, sep = ""))} )
+    suppressWarnings(suppressMessages(lapply(X = list_workers, FUN = function(a1) {system(paste("kill -9 ", a1$pid, sep = ""), ignore.stdout = TRUE, ignore.stderr = TRUE)} )))
     # spew out the last 20 status lines for easy debugging
     # lapply(X = names(vector_exit_codes)[vector_exit_codes > 0], FUN = function(a1) {warning(paste(a1, " stdout (last 20 lines)", sep = "")); warning(system(command = paste("tail -n 20 ", paste(.status_messages_dir, "/", a1, "_stdout.txt", sep = ""), sep = ""))); warning(paste(a1, " stderr (last 20 lines)", sep = "")); warning(system(command = paste("tail -n 20 ", paste(.status_messages_dir, "/", a1, "_stderr.txt", sep = ""), sep = "")))} )
     options(warning.length = 8170)
@@ -396,7 +405,7 @@ mc_pmap <- function(
     unlink(list.files(path = .intermediate_files_dir, pattern = ".*.qs", full.names = TRUE ), recursive = TRUE)
   }
   
-  lapply(X = list_workers, FUN = function(a1) {system(paste("kill -9 ", a1$pid, sep = ""))} )
+  suppressWarnings(suppressMessages(lapply(X = list_workers, FUN = function(a1) {system(paste("kill -9 ", a1$pid, sep = ""), ignore.stdout = TRUE, ignore.stderr = TRUE)} )))
   rm(list = ls(pattern = "chunk_"))
   rm(list_workers)
   
