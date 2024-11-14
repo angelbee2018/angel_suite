@@ -25,8 +25,8 @@ mc_pmap <- function(
   # .f = function(b1) {set.seed(b1);Sys.sleep(runif(n = 1, min = 3, max = 5)); return(list(LETTERS[b1]))}
   # .debug <- FALSE
   ###########
-  
-  for (i in c("globals", "purrr", "parallel", "utils", "lubridate", "qs")) { 
+
+  for (i in c("parallel", "utils", "lubridate", "qs")) { 
     
     if (require(i, character.only = TRUE) == FALSE) {
       stop(paste("Package \"", i, "\" not found. Please install using `install.packages` or `BiocManager::install`", sep = ""))
@@ -80,157 +80,8 @@ mc_pmap <- function(
   
   message(paste("Status messages will be saved to disk at: ", .status_messages_dir, sep = ""))
   
-  # SCOPING ###
-  
-  # vector_global_packages <- globals::packagesOf(globals::globalsOf(.f, mustExist = FALSE)) %>% setdiff(., c("base", "rlang"))
-  # 
-  # if (.debug == TRUE) {
-  #   print("vector_global_packages at the surface level of the function")
-  #   print(vector_global_packages)
-  # }
-  # 
-  # # save the current env into temp path
-  # if (.re_export == FALSE & dir.exists(.globals_save_dir)) {
-  #   
-  #   message("Temp object data file found. Will load that instead of re-exporting")
-  #   
-  # } else {
-  #   
-  #   if (.globals_mode == "global") {
-  #     message("Writing globals to disk")
-  #     save.image(file = .globals_save_dir, compress = .globals_save_compress)
-  #   } else if (.globals_mode == "auto") {
-  #     
-  #     vector_global_variables <- c(globals::findGlobals(.f), .user_global_objects)
-  #     
-  #     if (.debug == TRUE) {
-  #       print(vector_global_variables)
-  #     }
-  #     
-  #     temp_global_variables_uncollected <- setdiff(vector_global_variables, ls())
-  #     
-  #     # recursively traverse the frame stack from the bottom up until we collect everything
-  #     temp_current_frame <- sys.nframe()
-  #     
-  #     while (length(temp_global_variables_uncollected) > 0 & temp_current_frame > -1) {
-  #       
-  #       for (j in temp_global_variables_uncollected) {
-  #         
-  #         assign(x = j, value = dynGet(x = j, ifnotfound = NULL, minframe = temp_current_frame))
-  #         
-  #         if (.debug == TRUE) {
-  #           message("temp_current_frame: ", temp_current_frame)
-  #           message(j)
-  #           print(get(x = j))
-  #         }
-  #         
-  #         if (is.null(get(x = j)) == TRUE) {
-  #           rm(list = j)
-  #         }
-  #         
-  #       }
-  #       
-  #       temp_global_variables_uncollected <- setdiff(temp_global_variables_uncollected, ls())
-  #       
-  #       temp_current_frame <- temp_current_frame - 1
-  #       
-  #     }
-  #     
-  #     # deal with the special case of nested function definitions
-  #     vector_all_function_names_in_environment <- lsf.str() %>% as.character
-  #     
-  #     temp_vector_names_of_newly_discovered_nested_functions_for_inspection <- vector_all_function_names_in_environment
-  #     temp_vector_names_of_newly_discovered_nested_functions_for_inspection0 <- character()
-  #     
-  #     # recursively inspect functions until there are no more functions within the functions
-  #     # nested packages -> added to global vector of package names
-  #     # nested functions -> copied into environment using `dynGet` + uncollected function names are added to the uncollected list + added to vector_global_variables + flagged for further internal inspection
-  #     while (length(temp_vector_names_of_newly_discovered_nested_functions_for_inspection) > 0) {
-  #       
-  #       for (temp_function_to_inspect in purrr::map(.x = temp_vector_names_of_newly_discovered_nested_functions_for_inspection, .f = ~get(.x))) {
-  #         
-  #         vector_global_packages <- c(vector_global_packages, globals::packagesOf(globals::globalsOf(temp_function_to_inspect, mustExist = FALSE)) %>% setdiff(., c("base", "rlang"))) %>% unique
-  #         
-  #         temp_vector_names_of_newly_discovered_nested_functions_for_inspection0 <- c(temp_vector_names_of_newly_discovered_nested_functions_for_inspection0, setdiff(globals::findGlobals(temp_function_to_inspect), temp_global_variables_uncollected))
-  #         
-  #       }
-  #       
-  #       # flag for further internal inspection
-  #       temp_vector_names_of_newly_discovered_nested_functions_for_inspection <- temp_vector_names_of_newly_discovered_nested_functions_for_inspection0
-  #       
-  #       # copy into env using dynGet
-  #       # recursively traverse the frame stack from the bottom up until we collect everything
-  #       temp_current_frame <- sys.nframe()
-  #       
-  #       while (length(temp_vector_names_of_newly_discovered_nested_functions_for_inspection0) > 0 & temp_current_frame > -1) {
-  #         
-  #         for (j in temp_vector_names_of_newly_discovered_nested_functions_for_inspection0) {
-  #           
-  #           assign(x = j, value = dynGet(x = j, ifnotfound = NULL, minframe = temp_current_frame))
-  #           
-  #           if (.debug == TRUE) {
-  #             message("temp_current_frame: ", temp_current_frame)
-  #             message(j)
-  #             print(get(x = j))
-  #           }
-  #           
-  #           if (is.null(get(x = j)) == TRUE) {
-  #             rm(list = j)
-  #           }
-  #           
-  #         }
-  #         
-  #         temp_vector_names_of_newly_discovered_nested_functions_for_inspection0 <- setdiff(temp_vector_names_of_newly_discovered_nested_functions_for_inspection0, ls())
-  #         
-  #         temp_current_frame <- temp_current_frame - 1
-  #         
-  #       }
-  #       
-  #       # uncollected function names are added to the global uncollected list
-  #       temp_global_variables_uncollected <- c(temp_global_variables_uncollected, temp_vector_names_of_newly_discovered_nested_functions_for_inspection0) %>% unique
-  #       
-  #       # flag for further internal inspection (update to have only collected and loaded functions)
-  #       temp_vector_names_of_newly_discovered_nested_functions_for_inspection <- intersect(temp_vector_names_of_newly_discovered_nested_functions_for_inspection, lsf.str() %>% as.character)
-  #       
-  #       # collected functions added to vector_global_variables
-  #       vector_global_variables <- c(vector_global_variables, temp_vector_names_of_newly_discovered_nested_functions_for_inspection) %>% unique
-  #       
-  #       temp_vector_names_of_newly_discovered_nested_functions_for_inspection0 <- character()
-  #       
-  #     }
-  #     
-  #     if (length(temp_global_variables_uncollected) > 0) {
-  #       warning(paste("Scoping has finished but there remain some uncollected variables: ", paste(temp_global_variables_uncollected, collapse = " , "), "\n"))
-  #       
-  #       if (.debug == TRUE) {
-  #         message("all variables in environment right before writing to disk")
-  #         print(ls())
-  #       }
-  #       
-  #       vector_global_variables <- setdiff(vector_global_variables, temp_global_variables_uncollected)
-  #     }
-  #     
-  #     message("Writing globals to disk")
-  #     # save(list = vector_global_variables, file = .globals_save_dir, compress = .globals_save_compress)
-  #     
-  #     for (i in vector_global_variables) {
-  #       qs::qsave(x = get(i), file = paste(.globals_save_dir, i, ".qs", sep = ""))
-  #     }
-  #     
-  #   }
-  #   
-  # }
-  
-  # END SCOPING ###
-  
-  if (.debug == TRUE) {
-    tictoc::tic()
-  }
   # check if all the list elements are of equal length
   map_length <- unique(unlist(lapply(X = .l, FUN = function(a1) {return(length(a1))} )))
-  if (.debug == TRUE) {
-    tictoc::toc()
-  }
   
   if (.no_workers > map_length) {
     .no_workers <- map_length
@@ -262,83 +113,50 @@ mc_pmap <- function(
   map_length <- .no_chunks
   
   # END CHUNKING ###
-  
-  message("Commencing computation")
-  
-  # initial allocation of tasks to maximum number of workers
-  for (..i in 1:.no_workers) {
-    
-    # define chunk for the target of mapping operation
-    .l_current <- lapply(X = .l, FUN = function(a1) {return(a1[parallel::splitIndices(nx = length(.l[[1]]), ncl = .no_chunks)[[..i]]])} )
-    
-    .status_messages_dir_stdout <- paste(.status_messages_dir, "/chunk_", ..i, "_stdout.txt", sep = "")
-    .status_messages_dir_stderr <- paste(.status_messages_dir, "/chunk_", ..i, "_stderr.txt", sep = "")
-    
-    # define function to be fun
-    function_to_run <- function(.l_current, .f, .globals_save_dir, .intermediate_files_dir, .job_name, .progress, .debug, ..i, .status_messages_dir_stdout, .status_messages_dir_stderr) {
-      
-      writeLines(text = "", con = paste(.intermediate_files_dir, "/", .job_name, "_chunk_", ..i, "_exitmsg.txt", sep = ""))
-      
-      .status_messages_dir_stdout_con <- file(.status_messages_dir_stdout, open = "a")
-      sink(file = .status_messages_dir_stdout_con, split = TRUE, append = FALSE, type = "output")
-      
-      .status_messages_dir_stderr_con <- file(.status_messages_dir_stderr, open = "a")
-      sink(file = .status_messages_dir_stderr_con, split = FALSE, append = FALSE, type = "message")
-      
-      # lapply(vector_global_packages, library, character.only = TRUE)
-      # for (i in vector_global_variables) {
-      #   assign(x = i, value = qs::qread(file = paste(.globals_save_dir, i, ".qs", sep = "")), envir = .GlobalEnv)
-      # }
-      
-      # load(file = .globals_save_dir, envir = .GlobalEnv)
-      
-      if (.debug == TRUE) {
-        print("ls before pmap")
-        print(ls())
-      }
-      
-      obj <- purrr::pmap(
-        .l = .l_current,
-        .f = .f,
-        .progress = .progress
-      )
-      
-      # saveRDS(object = obj, file = paste(.intermediate_files_dir, "/", .job_name, "_chunk_", ..i, ".rds", sep = ""))
-      qs::qsave(x = obj, file = paste(.intermediate_files_dir, "/", .job_name, "_chunk_", ..i, ".qs", sep = ""))
-      
-      writeLines(text = "GRACEFUL EXIT", con = paste(.intermediate_files_dir, "/", .job_name, "_chunk_", ..i, "_exitmsg.txt", sep = ""))
-      
-      system(paste("kill -9 ", Sys.getpid(), sep = ""))
 
-    }
+# define function to be fun
+          function_to_run <- function(.l_current, .f, .globals_save_dir, .intermediate_files_dir, .job_name, .progress, .debug, ..i, .status_messages_dir_stdout, .status_messages_dir_stderr) {
+            
+            writeLines(text = "", con = paste(.intermediate_files_dir, "/", .job_name, "_chunk_", ..i, "_exitmsg.txt", sep = ""))
+            
+            .status_messages_dir_stdout_con <- file(.status_messages_dir_stdout, open = "a")
+            sink(file = .status_messages_dir_stdout_con, split = TRUE, append = FALSE, type = "output")
+            
+            .status_messages_dir_stderr_con <- file(.status_messages_dir_stderr, open = "a")
+            sink(file = .status_messages_dir_stderr_con, split = FALSE, append = FALSE, type = "message")
+            
+            # lapply(vector_global_packages, library, character.only = TRUE)
+            # for (i in vector_global_variables) {
+            #   assign(x = i, value = qs::qread(file = paste(.globals_save_dir, i, ".qs", sep = "")), envir = .GlobalEnv)
+            # }
+            
+            # load(file = .globals_save_dir, envir = .GlobalEnv)
+            
+            if (.debug == TRUE) {
+              print("ls before pmap")
+              print(ls())
+            }
+            
+            obj <- purrr::pmap(
+              .l = .l_current,
+              .f = .f,
+              .progress = .progress
+            )
+            
+            # saveRDS(object = obj, file = paste(.intermediate_files_dir, "/", .job_name, "_chunk_", ..i, ".rds", sep = ""))
+            qs::qsave(x = obj, file = paste(.intermediate_files_dir, "/", .job_name, "_chunk_", ..i, ".qs", sep = ""))
+            
+            writeLines(text = "GRACEFUL EXIT", con = paste(.intermediate_files_dir, "/", .job_name, "_chunk_", ..i, "_exitmsg.txt", sep = ""))
+            
+            system(paste("kill -9 ", Sys.getpid(), sep = ""))
+            
+          }
     
-    # assign background worker
-    # assign(
-    #   x = paste("chunk_", ..i, sep = ""), 
-    #   value = parallel:::mcparallel(
-    #     expr = function_to_run(".l_current" = .l_current, ".f" = .f, ".globals_save_dir" = .globals_save_dir, ".intermediate_files_dir" = .intermediate_files_dir, ".job_name" = .job_name, ".progress" = .progress, ".debug" = .debug, "vector_global_variables" = vector_global_variables, "vector_global_packages" = vector_global_packages, "..i" = ..i)
-    #   )
-    # )
-    
-    assign(
-      x = paste("chunk_", ..i, sep = ""), 
-      value = parallel:::mcparallel(
-        expr = function_to_run(".l_current" = .l_current, ".f" = .f, ".globals_save_dir" = .globals_save_dir, ".intermediate_files_dir" = .intermediate_files_dir, ".job_name" = .job_name, ".progress" = .progress, ".debug" = .debug, "..i" = ..i, ".status_messages_dir_stdout" = .status_messages_dir_stdout, ".status_messages_dir_stderr" = .status_messages_dir_stderr), 
-        detached = TRUE
-      )
-    )
-    
-    list_workers[[..i]] <- get(paste("chunk_", ..i, sep = ""))
-    names(list_workers)[..i] <- paste("chunk_", ..i, sep = "")
-    
-  }
-  
-  if (.debug == TRUE) {
-    global_list_workers_initial <<- list_workers
-  }
-  
+  message("Commencing computation")
+      
   # keep track of iteration progress
-  current_map_index <- ..i
+  ## initialise
+  current_map_index <- 0
   
   # keep running while there are no errors
   ## NULL values dont count as nonzero - this is good for us
@@ -354,8 +172,10 @@ mc_pmap <- function(
   while(all(vector_exit_codes <= 0)) {
     
     # formulate our own exit codes
-    
-    ## retrieve system process status
+
+    if (current_map_index > 0) {
+
+        ## retrieve system process status
     vec_topresult <- trimws(system(command = "ps -eo pid,s", intern =  TRUE))
     df_topresult <- as.data.frame(t(as.data.frame(strsplit(vec_topresult[2:length(vec_topresult)], split = "\\s+"))))
     colnames(df_topresult) <- unlist(strsplit(vec_topresult[1], split = "\\s+"))
@@ -413,6 +233,10 @@ mc_pmap <- function(
       } )
     
     names(vector_exit_codes) <- names(list_workers)
+        
+    } else {
+      vector_exit_codes <- numeric()
+    }   
     
     if (.debug == TRUE) {
       print("df_process_status")
@@ -462,65 +286,23 @@ mc_pmap <- function(
         new_map_end <- min(c(current_map_index + .no_workers - number_of_processes_alive, map_length))
         
         for (..i in (new_map_start):min(c(new_map_end, map_length))) {
-          
-          current_map_index <- ..i
-          
+                    
           # define chunk for the target of mapping operation
           .l_current <- lapply(X = .l, FUN = function(a1) {return(a1[parallel::splitIndices(nx = length(.l[[1]]), ncl = .no_chunks)[[..i]]])} )
           
           .status_messages_dir_stdout <- paste(.status_messages_dir, "/chunk_", ..i, "_stdout.txt", sep = "")
           .status_messages_dir_stderr <- paste(.status_messages_dir, "/chunk_", ..i, "_stderr.txt", sep = "")
           
-          # define function to be fun
-          function_to_run <- function(.l_current, .f, .globals_save_dir, .intermediate_files_dir, .job_name, .progress, .debug, ..i, .status_messages_dir_stdout, .status_messages_dir_stderr) {
-            
-            writeLines(text = "", con = paste(.intermediate_files_dir, "/", .job_name, "_chunk_", ..i, "_exitmsg.txt", sep = ""))
-            
-            .status_messages_dir_stdout_con <- file(.status_messages_dir_stdout, open = "a")
-            sink(file = .status_messages_dir_stdout_con, split = TRUE, append = FALSE, type = "output")
-            
-            .status_messages_dir_stderr_con <- file(.status_messages_dir_stderr, open = "a")
-            sink(file = .status_messages_dir_stderr_con, split = FALSE, append = FALSE, type = "message")
-            
-            # lapply(vector_global_packages, library, character.only = TRUE)
-            # for (i in vector_global_variables) {
-            #   assign(x = i, value = qs::qread(file = paste(.globals_save_dir, i, ".qs", sep = "")), envir = .GlobalEnv)
-            # }
-            
-            # load(file = .globals_save_dir, envir = .GlobalEnv)
-            
-            if (.debug == TRUE) {
-              print("ls before pmap")
-              print(ls())
-            }
-            
-            obj <- purrr::pmap(
-              .l = .l_current,
-              .f = .f,
-              .progress = .progress
-            )
-            
-            # saveRDS(object = obj, file = paste(.intermediate_files_dir, "/", .job_name, "_chunk_", ..i, ".rds", sep = ""))
-            qs::qsave(x = obj, file = paste(.intermediate_files_dir, "/", .job_name, "_chunk_", ..i, ".qs", sep = ""))
-            
-            writeLines(text = "GRACEFUL EXIT", con = paste(.intermediate_files_dir, "/", .job_name, "_chunk_", ..i, "_exitmsg.txt", sep = ""))
-            
-            system(paste("kill -9 ", Sys.getpid(), sep = ""))
-            
-          }
-          
-          assign(
-            x = paste("chunk_", ..i, sep = ""), 
-            value = parallel:::mcparallel(
+          list_workers[[..i]] <- parallel:::mcparallel(
               expr = function_to_run(".l_current" = .l_current, ".f" = .f, ".globals_save_dir" = .globals_save_dir, ".intermediate_files_dir" = .intermediate_files_dir, ".job_name" = .job_name, ".progress" = .progress, ".debug" = .debug, "..i" = ..i, ".status_messages_dir_stdout" = .status_messages_dir_stdout, ".status_messages_dir_stderr" = .status_messages_dir_stderr), 
               detached = TRUE
             )
-          )
-          
-          list_workers[[..i]] <- get(paste("chunk_", ..i, sep = ""))
+                    
           names(list_workers)[..i] <- paste("chunk_", ..i, sep = "")
           
         }
+
+          current_map_index <- length(list_workers)
         
       }
       
@@ -583,42 +365,6 @@ mc_pmap <- function(
     } else {
       cat(paste("\r[", date(), "] Percent map completion: ", length(which(vector_logical_indices_workers_completed_reported)), "/", current_map_index, "/", map_length, " (", round(x = 100*length(which(vector_logical_indices_workers_completed_reported))/map_length, digits = 1), "%); Splice progress: ", length(vector_current_chunks_spliced), "/", map_length, sep = ""))
     }
-        
-    # check on process status and write progress file
-    # list_logical_any_error <- purrr::map2(
-    #   .x = list_workers, 
-    #   .y = names(list_workers), 
-    #   .f = function(a1, a2) {
-    #     
-    #     # DEBUG ###
-    #     # a1 <- list_workers[[8]]
-    #     # a2 <- names(list_workers) %>% .[[8]]
-    #     ###########
-    #     
-    #     stdout_lines <- a1$read_output_lines()
-    #     stderr_lines <- a1$read_error_lines()
-    #     
-    #     if (length(stdout_lines) != 0) {
-    #       write(x = paste(Sys.time()), file = paste(.status_messages_dir, .job_name, "_", a2, "_stdout.txt", sep = ""), append = TRUE)
-    #       write.table(x = stdout_lines, file = paste(.status_messages_dir, .job_name, "_", a2, "_stdout.txt", sep = ""), append = TRUE, row.names = FALSE, quote = FALSE) %>% suppressWarnings()
-    #     }
-    #     
-    #     if (length(stderr_lines) != 0) {
-    #       write(x = paste(Sys.time()), file = paste(.status_messages_dir, .job_name, "_", a2, "_stderr.txt", sep = ""), append = TRUE)
-    #       write.table(x = stderr_lines, file = paste(.status_messages_dir, .job_name, "_", a2, "_stderr.txt", sep = ""), append = TRUE, row.names = FALSE, quote = FALSE) %>% suppressWarnings()
-    #     }
-    #     
-    #     return(
-    #       grepl(x = stderr_lines, pattern = "^Error in", ignore.case = FALSE)
-    #     )
-    #     
-    #   } )
-    
-    # check for errors that don't show up in process exit status
-    # if (any(unlist(list_logical_any_error)) == TRUE) {
-    #   purrr::map(.x = list_workers, .f = ~.x$signal(9))
-    #   stop(print(paste("Stop error received on chunks:", paste(names(list_workers)[which(unlist(list_logical_any_error))], collapse = ", "))))
-    # }
     
     if (.debug == TRUE) {
       Sys.sleep(1)
