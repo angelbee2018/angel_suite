@@ -192,7 +192,6 @@ mc_pmap <- function(
       
       ## retrieve our list of assigned pids per chunk
       df_pidtable <- data.frame("chunkname" = names(list_workers), "PID" = type.convert(unlist(lapply(X = list_workers, FUN = function(a1) {a1$pid})), as.is = TRUE))
-      
       ## deal with the chunks we expect to be still running or not
       if (length(vector_current_chunks_spliced) > 0) {
         vector_names_of_current_chunks_spliced <- paste("chunk_", vector_current_chunks_spliced, sep = "")
@@ -308,7 +307,7 @@ mc_pmap <- function(
           
           list_workers[[..i]] <- parallel:::mcparallel(
             expr = function_to_run(".l_current" = .l_current, ".f" = .f, ".globals_save_dir" = .globals_save_dir, ".intermediate_files_dir" = .intermediate_files_dir, ".job_name" = .job_name, ".progress" = .progress, ".debug" = .debug, "..i" = ..i, ".status_messages_dir_stdout" = .status_messages_dir_stdout, ".status_messages_dir_stderr" = .status_messages_dir_stderr), 
-            detached = FALSE
+            detached = TRUE
           )
           
           names(list_workers)[..i] <- paste("chunk_", ..i, sep = "")
