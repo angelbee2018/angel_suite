@@ -82,7 +82,7 @@ system.time(future_map(1:500000, boot_lm)) %>% suppressMessages() %>% suppressWa
 
 system.time(round_robin_pmap_callr(.l = list("a1" = 1:500000), .num_workers = 96, .no_chunks = 96, .f = function(a1) {boot_lm()}))
 
-system.time(mc_pmap(.l = list("a1" = 1:500000), .no_workers = 96, .no_chunks = 96, .f = function(a1) {boot_lm()})) %>% suppressMessages() %>% suppressWarnings()
+system.time(mc_pmap(.l = list("a1" = 1:50000), .no_workers = 16, .no_chunks = 16, .f = function(a1) {boot_lm()})) %>% suppressMessages() %>% suppressWarnings()
 
 system.time(
   round_robin_pmap_callr(

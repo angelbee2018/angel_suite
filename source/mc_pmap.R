@@ -38,6 +38,8 @@ mc_pmap <- function(
     }
   }
   
+  .parent_pid <- Sys.getpid()
+  
   .epoch_time <- as.numeric(Sys.time())*1E5
   .temp_dir <- paste(tempdir(), "_", .epoch_time, "/", sep = "")
   
@@ -184,7 +186,7 @@ mc_pmap <- function(
     if (current_map_index > 0) {
       
       ## retrieve system process status
-      vec_topresult <- trimws(system(command = "ps -eo pid,s", intern =  TRUE))
+      vec_topresult <- trimws(system(command = "ps -eo pid,ppid,s", intern =  TRUE))
       df_topresult <- as.data.frame(t(as.data.frame(strsplit(vec_topresult[2:length(vec_topresult)], split = "\\s+"))))
       colnames(df_topresult) <- unlist(strsplit(vec_topresult[1], split = "\\s+"))
       
@@ -205,7 +207,9 @@ mc_pmap <- function(
       
       # tibble_process_status <- dplyr::left_join(df_pidtable, df_topresult, by = "PID")
       df_process_status <- merge(x = df_pidtable, y = df_topresult, by = "PID", all.x = TRUE)
-      
+      # FILTER BY PARENT PID
+      df_process_status <- df_process_status[df_process_status$PPID == .parent_pid, ]
+        
       df_process_status[is.na(df_process_status$S), "S"] <- "missing"
       df_process_status$isalive <- !grepl(x = df_process_status$S, pattern = "Z|X|T|t|missing", ignore.case = FALSE)
       
@@ -304,7 +308,7 @@ mc_pmap <- function(
           
           list_workers[[..i]] <- parallel:::mcparallel(
             expr = function_to_run(".l_current" = .l_current, ".f" = .f, ".globals_save_dir" = .globals_save_dir, ".intermediate_files_dir" = .intermediate_files_dir, ".job_name" = .job_name, ".progress" = .progress, ".debug" = .debug, "..i" = ..i, ".status_messages_dir_stdout" = .status_messages_dir_stdout, ".status_messages_dir_stderr" = .status_messages_dir_stderr), 
-            detached = TRUE
+            detached = FALSE
           )
           
           names(list_workers)[..i] <- paste("chunk_", ..i, sep = "")
