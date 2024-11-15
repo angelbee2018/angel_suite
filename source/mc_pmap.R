@@ -187,11 +187,11 @@ mc_pmap <- function(
       
       ## retrieve system process status
       vec_topresult <- trimws(system(command = "ps -eo pid,ppid,s", intern =  TRUE))
-      df_topresult <- as.data.frame(t(as.data.frame(strsplit(vec_topresult[2:length(vec_topresult)], split = "\\s+"))))
+      df_topresult <- type.convert(as.data.frame(t(as.data.frame(strsplit(vec_topresult[2:length(vec_topresult)], split = "\\s+")))), as.is = TRUE)
       colnames(df_topresult) <- unlist(strsplit(vec_topresult[1], split = "\\s+"))
       
       ## retrieve our list of assigned pids per chunk
-      df_pidtable <- data.frame("chunkname" = names(list_workers), "PID" = unlist(lapply(X = list_workers, FUN = function(a1) {a1$pid})))
+      df_pidtable <- data.frame("chunkname" = names(list_workers), "PID" = type.convert(unlist(lapply(X = list_workers, FUN = function(a1) {a1$pid})), as.is = TRUE))
       
       ## deal with the chunks we expect to be still running or not
       if (length(vector_current_chunks_spliced) > 0) {
