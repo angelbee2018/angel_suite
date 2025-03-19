@@ -6,23 +6,40 @@
 
 library(tidyverse)
 
-source("C:/Users/angel/Documents/angel_suite/source/main_source.R")
+# source("C:/Users/angel/Documents/angel_suite/source/main_source.R")
+source("/mnt/LTS/tools/angel_suite/source/main_source.R")
 
-tibble_ref_gtf <- data.table::fread(file = "F:/edn_suite/data/annotated_ensembl_gtf_release_104.txt", sep = "\t", header = TRUE) %>% tibble::as_tibble()
+# tibble_ref_gtf <- data.table::fread(file = "F:/edn_suite/data/annotated_ensembl_gtf_release_104.txt", sep = "\t", header = TRUE) %>% tibble::as_tibble()
+tibble_ref_gtf <- data.table::fread(file = "/mnt/LTS/projects/2020_isoform_nomenclature/nomenclature_app/app_native/EDN_suite/data/annotated_ensembl_gtf_release_104.txt", sep = "\t", header = TRUE) %>% tibble::as_tibble()
 
-tibble_ref_gtf_short <- tibble_ref_gtf[1:10000,]
+tibble_ref_gtf_short <- tibble_ref_gtf[1:50000,]
 
 library(furrr)
 library(purrr)
-plan(list(tweak(multisession, workers = 8)))
-options(future.globals.maxSize = 99999999999)
+options(future.globals.maxSize = 99999999999, future.fork.enable = TRUE)
+plan(list(tweak(multicore, workers = 96)))
 
 system.time(
-test <- furrr::future_pmap(
+test1 <- furrr::future_pmap(
   .l = list(
     "a1" = tibble_ref_gtf_short[tibble_ref_gtf_short$type == "transcript", ] %>% purrr::array_tree(),
     "a2" = 1:(tibble_ref_gtf_short[tibble_ref_gtf_short$type == "transcript", ] %>% purrr::array_tree() %>% length)
   ), 
+  .f = function(a1, a2) {
+    
+    extract_overlapping_features(query_chr = a1$seqnames, query_start = a1$start %>% type.convert(as.is = TRUE), query_end = a1$end %>% type.convert(as.is = TRUE), query_strand = a1$strand, tibble_gtf_table = tibble_ref_gtf, left_query_shift = 0, right_query_shift = 0, left_tolerance = 0, right_tolerance = 0, return_type = NULL, complete_overlap = FALSE) %>% 
+      return
+    
+  }, .progress = TRUE )
+)
+
+system.time(
+test2 <- mc_pmap(
+  .l = list(
+    "a1" = tibble_ref_gtf_short[tibble_ref_gtf_short$type == "transcript", ] %>% purrr::array_tree(),
+    "a2" = 1:(tibble_ref_gtf_short[tibble_ref_gtf_short$type == "transcript", ] %>% purrr::array_tree() %>% length)
+  ), 
+  .no_workers = 96, .no_chunks = 96,
   .f = function(a1, a2) {
     
     extract_overlapping_features(query_chr = a1$seqnames, query_start = a1$start %>% type.convert(as.is = TRUE), query_end = a1$end %>% type.convert(as.is = TRUE), query_strand = a1$strand, tibble_gtf_table = tibble_ref_gtf, left_query_shift = 0, right_query_shift = 0, left_tolerance = 0, right_tolerance = 0, return_type = NULL, complete_overlap = FALSE) %>% 
@@ -43,21 +60,21 @@ test <- furrr::future_pmap(
 #   } )
 # )
 
-system.time(
-test <- round_robin_pmap_callr(
-  .l = list(
-    "a1" = 1:nrow(tibble_ref_gtf_short[tibble_ref_gtf_short$type == "transcript", ])
-  ), 
-  .num_workers = 8, 
-  .no_chunks = 8, 
-  .job_name = "test",
-  .f = function(a1, a2) {
-    
-    extract_overlapping_features(query_chr = tibble_ref_gtf_short[a1, ] %>% .$seqnames, query_start = tibble_ref_gtf_short[a1, ] %>% .$start %>% type.convert(as.is = TRUE), query_end = tibble_ref_gtf_short[a1, ] %>% .$end %>% type.convert(as.is = TRUE), query_strand = tibble_ref_gtf_short[a1, ] %>% .$strand, tibble_gtf_table = tibble_ref_gtf, left_query_shift = 0, right_query_shift = 0, left_tolerance = 0, right_tolerance = 0, return_type = NULL, complete_overlap = FALSE) %>% 
-      return
-    
-  } )
-)
+# system.time(
+# test <- round_robin_pmap_callr(
+#   .l = list(
+#     "a1" = 1:nrow(tibble_ref_gtf_short[tibble_ref_gtf_short$type == "transcript", ])
+#   ), 
+#   .num_workers = 8, 
+#   .no_chunks = 8, 
+#   .job_name = "test",
+#   .f = function(a1, a2) {
+#     
+#     extract_overlapping_features(query_chr = tibble_ref_gtf_short[a1, ] %>% .$seqnames, query_start = tibble_ref_gtf_short[a1, ] %>% .$start %>% type.convert(as.is = TRUE), query_end = tibble_ref_gtf_short[a1, ] %>% .$end %>% type.convert(as.is = TRUE), query_strand = tibble_ref_gtf_short[a1, ] %>% .$strand, tibble_gtf_table = tibble_ref_gtf, left_query_shift = 0, right_query_shift = 0, left_tolerance = 0, right_tolerance = 0, return_type = NULL, complete_overlap = FALSE) %>% 
+#       return
+#     
+#   } )
+# )
 
 ```
 
@@ -68,7 +85,7 @@ test <- round_robin_pmap_callr(
 library(furrr)
 library(purrr)
 options(future.globals.maxSize = 1500000000000, future.fork.enable = TRUE)
-plan(list(tweak(multicore, workers = 96)))
+plan(list(tweak(multicore, workers = 192)))
 
 boot_df <- function(x) x[sample(nrow(x), replace = T), ]
 rsquared <- function(mod) summary(mod)$r.squared
@@ -78,11 +95,11 @@ boot_lm <- function(i) {
 
 system.time(map(1:5000, boot_lm))
 
-system.time(future_map(1:500000, boot_lm)) %>% suppressMessages() %>% suppressWarnings()
+system.time(future_map(1:5000000, boot_lm)) %>% suppressMessages() %>% suppressWarnings()
+
+system.time(mc_pmap(.l = list("a1" = 1:5000000), .no_workers = 96, .no_chunks = 96, .f = function(a1) {boot_lm()})) %>% suppressMessages() %>% suppressWarnings()
 
 system.time(round_robin_pmap_callr(.l = list("a1" = 1:500000), .num_workers = 96, .no_chunks = 96, .f = function(a1) {boot_lm()}))
-
-system.time(mc_pmap(.l = list("a1" = 1:50000), .no_workers = 16, .no_chunks = 16, .f = function(a1) {boot_lm()})) %>% suppressMessages() %>% suppressWarnings()
 
 system.time(
   round_robin_pmap_callr(

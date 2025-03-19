@@ -1,3 +1,18 @@
+al_splitindices <- function (index_length, number_of_chunks) 
+{
+  if (number_of_chunks <= 0L) 
+    stop("must specify 1 or more chunks")
+  else if (number_of_chunks == 1L | index_length == 1L) 
+    return(list(list("start" = 1, "end" = index_length)))
+  else {
+    # fuzz <- min((index_length - 1L)/1000, 0.4 * index_length/number_of_chunks)
+    # breaks <- seq(1 - fuzz, index_length + fuzz, length.out = number_of_chunks + 1L)
+    breaks <- seq(1, index_length + 0.1, length.out = number_of_chunks + 1)
+    output_start_ends <- lapply(X = 1:(length(breaks) - 1), FUN = function(a1) {return(list("start" = ceiling(max(1, breaks[a1])), "end" = floor(min(index_length, breaks[a1 + 1]))))} )
+    return(output_start_ends)
+  }
+}
+
 mc_pmap <- function(
     .l, .f, 
     .no_workers = 1, .no_chunks = 1, .splicing_order = "ordered", 
@@ -44,7 +59,7 @@ mc_pmap <- function(
   .temp_dir <- paste(tempdir(), "_", .epoch_time, "/", sep = "")
   
   if (is.null(.job_name)) {
-    .job_name <- paste("round_robin_pmap_callr_", .epoch_time, sep = "")
+    .job_name <- paste("mc_pmap_", .epoch_time, sep = "")
   }
   
   message(paste("Job name: ", .job_name, sep = ""))
@@ -83,14 +98,19 @@ mc_pmap <- function(
   # check if all the list elements are of equal length
   .list_length <- unique(unlist(lapply(X = .l, FUN = function(a1) {return(length(a1))} )))
   
-  map_length <- .list_length
+  # print(".list_length")
+  # print(.list_length)
+  # print(".no_workers")
+  # print(.no_workers)
   
-  if (.no_workers > map_length) {
-    .no_workers <- map_length
-  }
+  map_length <- .list_length
   
   if (length(map_length) != 1) {
     stop("ERROR: list args have incompatible lengths.")
+  }
+  
+  if (.no_workers > map_length) {
+    .no_workers <- map_length
   }
   
   if (map_length == 0) {
@@ -229,11 +249,24 @@ mc_pmap <- function(
           if (file.exists(exitmsg_path)) {
             exitmsg <- readLines(con = exitmsg_path)
             
-            if (exitmsg == "GRACEFUL EXIT" | a2 %in% vector_names_of_current_chunks_spliced) {
+            if (.debug == TRUE) {
+              print("exitmsg")
+              print(exitmsg)
+              print("a2 %in% vector_names_of_current_chunks_spliced")
+              print(a2 %in% vector_names_of_current_chunks_spliced)
+            }
+            
+            if (c(exitmsg, "PLACEHOLDER")[1] == "GRACEFUL EXIT" | a2 %in% vector_names_of_current_chunks_spliced) {
               return(0)
             } else if (logical_process_is_alive == TRUE) {
               return(-1)
             } else if (logical_process_is_alive == FALSE) {
+              
+              if (file.exists(paste(.intermediate_files_dir, "/", .job_name, "_", a2, ".qs", sep = ""))) {
+                Sys.sleep(1)
+                exitmsg <- readLines(con = exitmsg_path)
+              }
+              
               return(1)
             }
             
@@ -298,10 +331,11 @@ mc_pmap <- function(
         
         for (..i in (new_map_start):min(c(new_map_end, map_length))) {
           
-          # define chunk for the target of mapping operation
-          .l_current <- lapply(X = .l, FUN = function(a1) {return(a1[parallel::splitIndices(nx = .list_length, ncl = .no_chunks)[[..i]]])} )
-          # .l_current <- .l_chunked[[..i]]
+          list_start_end_indices <- al_splitindices(index_length = .list_length, number_of_chunks = .no_chunks)[[..i]]
           
+          # define chunk for the target of mapping operation
+          .l_current <- lapply(X = .l, FUN = function(a1) {return(a1[list_start_end_indices$start:list_start_end_indices$end])} )
+
           .status_messages_dir_stdout <- paste(.status_messages_dir, "/chunk_", ..i, "_stdout.txt", sep = "")
           .status_messages_dir_stderr <- paste(.status_messages_dir, "/chunk_", ..i, "_stderr.txt", sep = "")
           

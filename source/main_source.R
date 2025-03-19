@@ -361,12 +361,12 @@ round_robin_pmap_callr <- function(
   # check if all the list elements are of equal length
   map_length <- unique(unlist(purrr::map(.x = .l, .f = ~length(.x))))
   
-  if (.num_workers > map_length) {
-    .num_workers <- map_length
-  }
-  
   if (length(map_length) != 1) {
     stop("ERROR: list args have incompatible lengths.")
+  }
+  
+  if (.num_workers > map_length) {
+    .num_workers <- map_length
   }
   
   if (map_length == 0) {
@@ -612,8 +612,6 @@ round_robin_pmap_callr <- function(
           
         }
         
-        Sys.sleep(1)
-        
       }
       
       # END SPLICER ###
@@ -632,7 +630,7 @@ round_robin_pmap_callr <- function(
     
     vector_exit_statuses <- unlist(purrr::map(.x = list_workers, .f = ~.x$get_exit_status()))
     
-    Sys.sleep(1)
+    Sys.sleep(0.1)
     
   }
   
@@ -885,12 +883,12 @@ callr_map <- function(
   # check if all the list elements are of equal length
   map_length <- length(.x)
   
-  if (.no_workers > map_length) {
-    .no_workers <- map_length
-  }
-  
   if (length(map_length) != 1) {
     stop("ERROR: list args have incompatible lengths.")
+  }
+  
+  if (.no_workers > map_length) {
+    .no_workers <- map_length
   }
   
   if (map_length == 0) {
@@ -1136,8 +1134,6 @@ callr_map <- function(
           
         }
         
-        Sys.sleep(1)
-        
       }
       
       # END SPLICER ###
@@ -1156,7 +1152,7 @@ callr_map <- function(
     
     vector_exit_statuses <- unlist(purrr::map(.x = list_workers, .f = ~.x$get_exit_status()))
     
-    Sys.sleep(1)
+    Sys.sleep(0.1)
     
   }
   
@@ -1664,8 +1660,6 @@ callr_map2 <- function(
           
         }
         
-        Sys.sleep(1)
-        
       }
       
       # END SPLICER ###
@@ -1684,7 +1678,7 @@ callr_map2 <- function(
     
     vector_exit_statuses <- unlist(purrr::map(.x = list_workers, .f = ~.x$get_exit_status()))
     
-    Sys.sleep(1)
+    Sys.sleep(0.1)
     
   }
   
@@ -2077,7 +2071,7 @@ callr_insulator <- function(
     if (flag_completion == TRUE) {
       break()
     } else if (flag_completion == FALSE) {
-      Sys.sleep(1)
+      Sys.sleep(0.1)
     }
     
   }
