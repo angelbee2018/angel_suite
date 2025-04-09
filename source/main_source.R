@@ -2607,7 +2607,7 @@ calculate_average_values_from_replicate_columns <- function(input_matrix, number
 # END calculate_average_values_from_replicate_columns()
 
 # target_colnames: a vector of names of the columns to split at the same time
-split_delimited_columns_in_table <- function(input_table, target_colnames, split, columns_to_deduplicate = NULL) {
+split_delimited_columns_in_table <- function(input_table, target_colnames, split, columns_to_deduplicate = NULL, .parallel = "none", .no_workers = 1, .no_chunks = 1, .progress = TRUE) {
   
   # DEBUG ###
   # input_table <- tibble("a" = c("345,345", "asdf,5t345", "32454rtg,54", "3245345,rr"), "b" = c("345,345", "asdf,5t345", "32454rtg,54", "3245345,rr"), "c" = "haha")
@@ -2621,12 +2621,33 @@ split_delimited_columns_in_table <- function(input_table, target_colnames, split
   ## using `apply` in this way will return a list of lists, with L1 being columns and L2 being rows of each column
   list_split_columns <- apply(X = input_table[, target_colnames], MARGIN = 2, FUN = function(x) {return(strsplit(x, split = split))} )
   
-  list_split_lengths <- pmap(
-    .l = list_split_columns, 
-    .f = function(...) {
-      return(unique(unlist(purrr::map(.x = list(...), .f = ~length(.x)))))
-    }
-  )
+  if (.parallel == "none") {
+    list_split_lengths <- pmap(
+      .l = list_split_columns, 
+      .f = function(...) {
+        return(unique(unlist(purrr::map(.x = list(...), .f = ~length(.x)))))
+      },
+      .progress = .progress
+    )
+  } else if (.parallel == "callr") {
+    list_split_lengths <- round_robin_pmap_callr(
+      .l = list_split_columns, 
+      .num_workers = .no_workers, .no_chunks = .no_chunks,
+      .f = function(...) {
+        return(unique(unlist(purrr::map(.x = list(...), .f = ~length(.x)))))
+      },
+      .progress = .progress
+    )
+  } else if (.parallel == "mc") {
+    list_split_lengths <- mc_pmap(
+      .l = list_split_columns, 
+      .no_workers = .no_workers, .no_chunks = .no_chunks,
+      .f = function(...) {
+        return(unique(unlist(purrr::map(.x = list(...), .f = ~length(.x)))))
+      },
+      .progress = .progress
+    )
+  }
   
   if (unique(unlist(purrr::map(.x = list_split_lengths, .f = ~length(.x))))[1] != 1 | length(unique(unlist(purrr::map(.x = list_split_lengths, .f = ~length(.x))))) != 1) {
     stop("Multicolumn splits are uneven. Cannot proceed further.")
@@ -2655,15 +2676,54 @@ split_delimited_columns_in_table <- function(input_table, target_colnames, split
     list_deduplicated_columns <- input_table[, columns_to_deduplicate] %>% array_tree(margin = 2) %>% purrr::map(~array_tree(.x))
     
     # map over each column, split the target element and add _[0-9]+
-    list_deduplicated_columns_split <- purrr::map(.x = list_deduplicated_columns, .f = function(a1) {
-      
-      # map a subset each of the L2 (elements of a column)
-      a1[indices_of_duplicates] <- purrr::map2(.x = a1[indices_of_duplicates], .y = repetition_numbers_of_duplicates, 
-                                               .f = ~rep(.x, times = .y) %>% unlist %>% paste(., 1:.y, sep = "_"))
-      
-      return(a1 %>% unlist)
-      
-    } )
+    if (.parallel == "none") {
+      list_deduplicated_columns_split <- purrr::map(
+        .x = list_deduplicated_columns, 
+        .f = function(a1) {
+          
+          # map a subset each of the L2 (elements of a column)
+          a1[indices_of_duplicates] <- purrr::map2(.x = a1[indices_of_duplicates], .y = repetition_numbers_of_duplicates, 
+                                                   .f = ~rep(.x, times = .y) %>% unlist %>% paste(., 1:.y, sep = "_"))
+          
+          return(a1 %>% unlist)
+          
+        },
+        .progress = .progress )
+    } else if (.parallel == "callr") {
+      list_split_lengths <- round_robin_pmap_callr(
+        .l = list(
+          "a1" = list_deduplicated_columns
+        ), 
+        .num_workers = .no_workers, .no_chunks = .no_chunks,
+        .f = function(a1) {
+          
+          # map a subset each of the L2 (elements of a column)
+          a1[indices_of_duplicates] <- purrr::map2(.x = a1[indices_of_duplicates], .y = repetition_numbers_of_duplicates, 
+                                                   .f = ~rep(.x, times = .y) %>% unlist %>% paste(., 1:.y, sep = "_"))
+          
+          return(a1 %>% unlist)
+          
+        },
+        .progress = .progress
+      )
+    } else if (.parallel == "mc") {
+      list_split_lengths <- mc_pmap(
+        .l = list(
+          "a1" = list_deduplicated_columns
+        ), 
+        .no_workers = .no_workers, .no_chunks = .no_chunks,
+        .f = function(a1) {
+          
+          # map a subset each of the L2 (elements of a column)
+          a1[indices_of_duplicates] <- purrr::map2(.x = a1[indices_of_duplicates], .y = repetition_numbers_of_duplicates, 
+                                                   .f = ~rep(.x, times = .y) %>% unlist %>% paste(., 1:.y, sep = "_"))
+          
+          return(a1 %>% unlist)
+          
+        },
+        .progress = .progress
+      )
+    }
     
     # tibblise
     tibble_deduplicated_columns_split <- list_deduplicated_columns_split %>% as_tibble
@@ -2683,8 +2743,74 @@ split_delimited_columns_in_table <- function(input_table, target_colnames, split
 
 # END split_delimited_column_in_table()
 
+# create new, faster script based on delimiter counts with stringr::str_count
+# target_colnames: a vector of names of the columns to split at the same time
+# split: a regular expression
+split_delimited_columns_in_table2 <- function(input_table, target_colnames, split, columns_to_deduplicate = NULL) {
+  
+  # DEBUG ###
+  # input_table <- tibble("a" = c("345,345", "asdf,5t345", "32454rtg,54", "3245345,rr"), "b" = c("345,345", "asdf,5t345", "32454rtg,54", "3245345,rr"), "c" = "haha")
+  # target_colnames <- c("a", "b")
+  # split = "\\,"
+  # columns_to_deduplicate <- "c"
+  ###########
+  
+  # use stringr::str_count to count the number of desired delimiters in each row
+  nummatrix_split_lengths <- apply(X = input_table[, target_colnames], MARGIN = 2, FUN = function(x) {return(stringr::str_count(string = x, pattern = split))} )
+  
+  # check for length equivalence
+  nummatrix_split_lengths_unique <- t(unique(t(nummatrix_split_lengths))) + 1
+  number_of_unique_column_split_structures <- ncol(nummatrix_split_lengths_unique)
+  
+  if (number_of_unique_column_split_structures != 1) {
+    stop(paste("Multicolumn splits are uneven. Cannot proceed further. Got number_of_unique_column_split_structures = ", number_of_unique_column_split_structures, sep = ""))
+  }
+  
+  # repeat table according to the split lengths
+  vector_row_indices_of_table_repeated_by_split <- rep(x = 1:nrow(input_table), times = nummatrix_split_lengths_unique)
+  
+  input_table_repeated_by_split <- input_table[vector_row_indices_of_table_repeated_by_split, ]
+  
+  # replace target column with split values
+  list_split_columns <- apply(X = input_table[, target_colnames], MARGIN = 2, FUN = function(x) {return(strsplit(x, split = split))} )
+  
+  input_table_repeated_by_split[, target_colnames] <- list_split_columns %>% purrr::map(.f = ~.x %>% unlist) %>% tibble::as_tibble()
+  
+  split_table <- input_table_repeated_by_split
+  
+  # if specified, append an index to a particular column
+  if (is.null(intersect(colnames(input_table), columns_to_deduplicate)) == FALSE) {
+    
+    vector_repetition_mask <- rep(x = nummatrix_split_lengths_unique, times = nummatrix_split_lengths_unique)
+    vector_repetition_mask[vector_repetition_mask == 1] <- 0
+    vector_max_repetitions <- unique(vector_repetition_mask) %>% .[. != 0]
+    
+    for (temp_max_repetition in vector_max_repetitions) {
+      vector_repetition_mask[which(vector_repetition_mask == vector_max_repetitions[1])] <- seq(from = 1, to = temp_max_repetition)
+    }
+    
+    vector_repetition_mask <- paste("_", vector_repetition_mask, sep = "")
+    
+    vector_repetition_mask[vector_repetition_mask == "_0"] <- ""
+    
+    # add back every row onto the split table
+    for (temp_column_to_deduplicate in intersect(colnames(input_table), columns_to_deduplicate)) {
+      split_table[, temp_column_to_deduplicate] <- paste(split_table[[temp_column_to_deduplicate]], vector_repetition_mask, sep = "")
+    }
+    
+  }
+  
+  split_table <- readr::type_convert(split_table)
+  
+  return(split_table)
+  
+}
+
+# END split_delimited_columns_in_table2()
+
 # FUNCTION TO PLOT UMAP FOR SAMPLE AND REPLICATE
-# tibble_metadata: this should have n columns equal to the number of annotation to be specified, and m rows equal to number of samples (including replicates). basically a collection of vectors of length equal to number of samples.
+# tibble_metadata: this should have n columns equal to the number of samples, and m rows equal to number of features (including replicates). basically a collection of vectors of length equal to number of samples.
+# all input tables i write will expect that columns are samples and rows are features. any packages that expect the transpose will be handled by the wrapper.
 # protected colname: "condition_names", "replicate_names"
 plot_UMAP_sample_and_replicate_plotly <- function(table_matrix, condition_order = NULL, tibble_metadata = NULL, replicate_order = NULL, plot_shapes = TRUE, centroid_labels = TRUE, point_size = 5, centroid_label_size = 4, legend_position = "none", PCA_depths_y = NULL, PCA_depths_x = NULL, input_colour_limits = NULL, input_colour_value = NULL, save_dir = NULL, save_name = NULL, graph_title = NULL, width = 10, height = 10) {
   
@@ -3032,6 +3158,174 @@ plot_PCA_for_sample_and_replicate <- function(matrixtable, timepoint_order = NUL
       ggsave(filename = paste(save_dir, "PCA_loadings_", save_name, "_PC", pc_y, "_vs_PC_", pc_x, ".svg", sep = ""), device = "svg", dpi = 600, width = width, height = height, units = "cm")
     
   } )
+  
+}
+
+# new, revamped version
+## column names of the table_matrix need to be split by a "|", like this: condition|replicate
+## each column is a sample and each row is a feature
+## tibble_metadata must contain no. rows the same number as the number of columns in the input data
+### protected column names: ".sample" in the format condition|replicate, each row specifies additional annotations for each data point
+ggplot_plotly_pca <- function(table_matrix, .scale = TRUE, condition_order = NULL, replicate_order = NULL, tibble_metadata = NULL, plot_shapes = TRUE, centroid_labels = TRUE, point_size = 5, centroid_label_size = 4, legend_position = "none", pca_depths_x = NULL, pca_depths_y = NULL, ggplot_colour_limits = NULL, ggplot_colour_values = NULL, save_dir = NULL, save_name = NULL, graph_title = NULL, width_embeddings_plot = 10, height_embeddings_plot = 10, width_variance_plot = 45, height_variance_plot = 25, .plot_inline = TRUE, .save_plots = TRUE) {
+  
+  # DEBUG ###
+  # table_matrix <- matrix_donor_snp_presence[1:1000, ] %>% (function (x) {colnames(x) <- temp_tibble_metadata$`.sample`; return(x)})
+  # .scale <- TRUE
+  # condition_order <- tibble_donor_pair_record_processed$donor_batch %>% unique
+  # replicate_order <- c(1, 2, 3)
+  # tibble_metadata <- temp_tibble_metadata
+  # plot_shapes <- TRUE
+  # centroid_labels <- TRUE
+  # point_size <- 5
+  # centroid_label_size <- 4
+  # legend_position <- "none"
+  # pca_depths_x <- c(1, 2, 3)
+  # pca_depths_y <- c(2, 3, 4)
+  # ggplot_colour_limits <- NULL
+  # ggplot_colour_values <- NULL
+  # save_dir <- r_results_dir
+  # save_name <- c(vector_experiment_tag, "donor_snp_presence_pca_plot") %>% paste(collapse = "_")
+  # graph_title <- NULL
+  # width_embeddings_plot <- 10
+  # height_embeddings_plot <- 10
+  # width_variance_plot <- 45
+  # height_variance_plot <- 25
+  # .plot_inline <- TRUE
+  # .save_plots <- TRUE
+  # ###########
+  
+  # result: stdevs + a frame of rotations (embeddings) with columns PCs and rows as each sample
+  # pca_result <- prcomp(table_matrix, scale. = .scale, rank. = max(c(pca_depths_y, pca_depths_x)))
+  # summary.prcomp_result <- summary(pca_result)
+  
+  # irlba because it scales well
+  irlba_prcomp_result <- irlba::prcomp_irlba(x = table_matrix, n = max(c(pca_depths_y, pca_depths_x)), retx = FALSE, scale. = .scale)
+  vector_variances_explained <- ((irlba_prcomp_result$sdev)^2)/sum((irlba_prcomp_result$sdev)^2)
+  
+  # get PC variance
+  # first get stdev
+  # tibble_pca_stdev <- tibble::tibble("PC" = 1:(pca_result[["sdev"]] %>% length), "stdev" = pca_result[["sdev"]])
+  # now get variance
+  # tibble_pca_variance <- tibble::tibble(PC = tibble_pca_stdev$PC, variance = tibble_pca_stdev$stdev ^ 2)
+  # tibble_pca_variance <- tibble::add_column(tibble_pca_variance, variance_explained = tibble_pca_variance$variance/sum(tibble_pca_variance$variance) * 100)
+  
+  # plot PC variance
+  # ggplot_variance <- ggplot2::ggplot(tibble_pca_variance) + 
+  # ggplot2::geom_col(aes(x = PC, y = variance_explained, fill = PC)) +
+  # ggplot2::scale_fill_gradientn(colours = heat.colors(n = (pca_result[["sdev"]] %>% length))) +
+  # ggplot2::ggtitle(paste("pca variance distribution\n", graph_title, sep = "")) +
+  # ggplot2::guides(size = FALSE) + 
+  # ggplot2::xlab("PC") +
+  # ggplot2::ylab("Variance explained (%)") +
+  # ggplot2::theme_bw() +
+  # ggplot2::theme(text = ggplot2::element_text(family = "Helvetica"))
+  
+  # if (.save_plots == TRUE) {
+  #   ggplot2::ggsave(plot = ggplot_variance, filename = paste(save_dir, "pca_barplot_stdevs_", save_name, ".pdf", sep = ""), device = "pdf", dpi = 600, width = width_variance_plot, height = height_variance_plot, units = "cm")
+  # }
+  
+  # if (.plot_inline == TRUE) {
+  #   print(ggplot_variance)
+  # }
+  
+  # get PC loadings
+  ## column names of the matrix need to be split by a "|", like this: condition|replicate
+  # tibble_pca_loadings <- pca_result[["rotation"]] %>% tibble::as_tibble(rownames = ".sample")
+  tibble_pca_loadings <- irlba_prcomp_result[["rotation"]] %>% tibble::as_tibble() %>% dplyr::mutate(".sample" = tibble_metadata$.sample)
+  tibble_pca_loadings <- dplyr::mutate(
+    tibble_pca_loadings, 
+    "condition" = gsub(x = tibble_pca_loadings$`.sample`, pattern = "(.*)\\|(.*)", replacement = "\\1") %>% factor(x = ., levels = condition_order),
+    "replicate" = gsub(x = tibble_pca_loadings$`.sample`, pattern = "(.*)\\|(.*)", replacement = "\\2") %>% factor(x = ., levels = replicate_order),
+    .after = ".sample")
+  # add tibble_metadata
+  tibble_pca_loadings <- dplyr::left_join(
+    tibble_pca_loadings, 
+    tibble_metadata, 
+    by = ".sample"
+  )
+  
+  # automatically make color scale if not specified by the user
+  if (is.null(ggplot_colour_limits) == TRUE) {
+    ggplot_colour_limits <- levels(tibble_pca_loadings$condition)
+  }
+  
+  if (is.null(ggplot_colour_values) == TRUE) {
+    ggplot_colour_values <- rainbow(n = length(levels(tibble_pca_loadings$condition)))
+  }
+  
+  # plot pca for multiple depths all in one go.
+  purrr::map2(
+    .x = pca_depths_x, 
+    .y = pca_depths_y, 
+    .f = function(a1, a2) {
+      
+      # DEBUG ###
+      # a1 <- 1
+      # a2 <- 2
+      ###########
+      
+      pc_x <- a1
+      pc_y <- a2
+      
+      # centroid labels: make a separate table containing the centroid locations
+      tibble_centroid_locations <- tibble_pca_loadings %>% 
+        dplyr::group_by(condition) %>% 
+        dplyr::summarise("centroid_x" = mean(!!as.name(paste("PC", pc_x, sep = ""))),
+                         "centroid_y" = mean(!!as.name(paste("PC", pc_y, sep = "")))) %>%
+        dplyr::mutate("centroid_number" = paste(1:nrow(.)), .after = "condition")
+      
+      # join centroid table onto the main table
+      tibble_pca_loadings_with_centroids <- dplyr::left_join(
+        tibble_pca_loadings,
+        tibble_centroid_locations,
+        by = "condition"
+      )
+      
+      ggplot_embedding <- ggplot2::ggplot() + 
+        # shapes
+        (if (plot_shapes == TRUE) {ggplot2::geom_point(mapping = do.call(what = ggplot2::aes, args = list("x" = tibble_pca_loadings_with_centroids$centroid_x, "y" = tibble_pca_loadings_with_centroids$centroid_y, "shape" = tibble_pca_loadings_with_centroids$replicate, "color" = tibble_pca_loadings_with_centroids$condition, "fill" = tibble_pca_loadings_with_centroids$condition) %>% purrr::splice(tibble_pca_loadings_with_centroids %>% dplyr::select(-`.sample`, -contains(match = "PC", ignore.case = FALSE), -condition, -replicate) %>% purrr::array_tree(margin = 2))), size = point_size) } else {ggplot2::geom_blank(aes(x = tibble_pca_loadings_with_centroids$V1, y = tibble_pca_loadings_with_centroids$V2))}) +
+        scale_shape_manual(name = "Replicate", values = 1:length(replicate_order)) +
+        # centroid labels
+        (if (centroid_labels == TRUE) {ggplot2::geom_text(data = tibble_pca_loadings_with_centroids, mapping = do.call(what = ggplot2::aes, args = list("x" = tibble_pca_loadings_with_centroids$centroid_x, "y" = tibble_pca_loadings_with_centroids$centroid_y, "label" = tibble_pca_loadings_with_centroids$centroid_number, "color" = tibble_pca_loadings_with_centroids$condition) %>% purrr::splice(tibble_pca_loadings_with_centroids %>% dplyr::select(-`.sample`, -contains(match = "PC", ignore.case = FALSE), -condition, -replicate) %>% purrr::array_tree(margin = 2))), size = centroid_label_size)} else {geom_blank(aes(x = tibble_pca_loadings_with_centroids$centroid_x, y = tibble_pca_loadings_with_centroids$centroid_y))}) +
+        
+        scale_fill_manual(name = "Condition", breaks = ggplot_colour_limits, limits = ggplot_colour_limits, values = ggplot_colour_values) +
+        scale_colour_manual(name = "Condition", breaks = ggplot_colour_limits, limits = ggplot_colour_limits, values = ggplot_colour_values) +
+        
+        ggtitle(paste("PCA loadings\n", graph_title, sep = "")) +
+        
+        # xlab(paste("PC", pc_x, " (", 100 * summary.prcomp_result$importance %>% .[2, pc_x] %>% signif(3), "%)", sep = "")) +
+        # ylab(paste("PC", pc_y, " (", 100 * summary.prcomp_result$importance %>% .[2, pc_y] %>% signif(3), "%)", sep = "")) +
+        
+        xlab(paste("PC", pc_x, " (", 100 * vector_variances_explained %>% .[pc_x] %>% signif(3), "%)", sep = "")) +
+        ylab(paste("PC", pc_y, " (", 100 * vector_variances_explained %>% .[pc_y] %>% signif(3), "%)", sep = "")) +
+        
+        theme_bw() +
+        theme(text = element_text(family = "Helvetica"), legend.position = legend_position)
+      
+      if (.plot_inline == TRUE) {
+        print(ggplot_embedding)
+      }
+      
+      if (.save_plots == TRUE) {
+        
+        ggsave(plot = ggplot_embedding, filename = paste(save_dir, "/", save_name, "_pc", pc_y, "_vs_pc_", pc_x, ".pdf", sep = ""), device = "pdf", dpi = 600, width = width_embeddings_plot, height = height_embeddings_plot, units = "cm")
+        
+        plotly::ggplotly(
+          p = ggplot_embedding,
+          width = NULL,
+          height = NULL,
+          tooltip = "all",
+          dynamicTicks = FALSE,
+          layerData = "condition",
+          originalData = TRUE,
+        ) %>% 
+          htmlwidgets::saveWidget(paste(save_dir, "/", save_name, "_pc", pc_y, "_vs_pc_", pc_x, ".html", sep = ""))
+        
+        write.table(x = tibble_pca_loadings_with_centroids, file = paste(save_dir, "/", save_name, "_legend.txt", sep = ""), sep = "\t", quote = FALSE, row.names = FALSE, col.names = TRUE)
+        
+      }
+      
+    } )
   
 }
 
