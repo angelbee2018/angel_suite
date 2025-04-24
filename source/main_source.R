@@ -3169,9 +3169,9 @@ plot_PCA_for_sample_and_replicate <- function(matrixtable, timepoint_order = NUL
 ggplot_plotly_pca <- function(table_matrix, .scale = TRUE, condition_order = NULL, replicate_order = NULL, tibble_metadata = NULL, plot_shapes = TRUE, centroid_labels = TRUE, point_size = 5, centroid_label_size = 4, legend_position = "none", pca_depths_x = NULL, pca_depths_y = NULL, ggplot_colour_limits = NULL, ggplot_colour_values = NULL, save_dir = NULL, save_name = NULL, graph_title = NULL, width_embeddings_plot = 10, height_embeddings_plot = 10, width_variance_plot = 45, height_variance_plot = 25, .plot_inline = TRUE, .save_plots = TRUE) {
   
   # DEBUG ###
-  # table_matrix <- matrix_donor_snp_presence[1:1000, ] %>% (function (x) {colnames(x) <- temp_tibble_metadata$`.sample`; return(x)})
+  # table_matrix <- matrix_donor_variant_presence[1:1000, ] %>% (function (x) {colnames(x) <- temp_tibble_metadata$`.sample`; return(x)})
   # .scale <- TRUE
-  # condition_order <- tibble_donor_pair_record_processed$donor_batch %>% unique
+  # condition_order <- temp_tibble_metadata$donor_batch %>% unique %>% sort
   # replicate_order <- c(1, 2, 3)
   # tibble_metadata <- temp_tibble_metadata
   # plot_shapes <- TRUE
@@ -3181,8 +3181,8 @@ ggplot_plotly_pca <- function(table_matrix, .scale = TRUE, condition_order = NUL
   # legend_position <- "none"
   # pca_depths_x <- c(1, 2, 3)
   # pca_depths_y <- c(2, 3, 4)
-  # ggplot_colour_limits <- NULL
-  # ggplot_colour_values <- NULL
+  # ggplot_colour_limits <- temp_tibble_metadata$dcgl %>% as.character
+  # ggplot_colour_values <- rainbow(n = length(unique(temp_tibble_metadata$dcgl)))[temp_tibble_metadata$dcgl %>% as.character %>% as.factor %>% as.numeric]
   # save_dir <- r_results_dir
   # save_name <- c(vector_experiment_tag, "donor_snp_presence_pca_plot") %>% paste(collapse = "_")
   # graph_title <- NULL
@@ -3228,6 +3228,24 @@ ggplot_plotly_pca <- function(table_matrix, .scale = TRUE, condition_order = NUL
   #   print(ggplot_variance)
   # }
   
+  # automatically generate the tibble_metadata if not specified by user
+  if (is.null(tibble_metadata)) {
+    tibble_metadata <- tibble(".sample" = colnames(table_matrix))
+  }
+  
+  # automatically make color scale if not specified by the user
+  if (is.null(ggplot_colour_limits) == TRUE) {
+    message("ggplot_colour_limits not specified. Taking the condition names from the column names as colors.")
+    ggplot_colour_limits <- gsub(x = tibble_metadata$`.sample`, pattern = "(.*)\\|(.*)", replacement = "\\1")
+  }
+  tibble_metadata[, "color_limits"] <- ggplot_colour_limits
+  
+  if (is.null(ggplot_colour_values) == TRUE) {
+    message("ggplot_colour_values not specified. Taking unique condition names from the column names as colors.")
+    ggplot_colour_values <- rainbow(n = length(unique(gsub(x = tibble_metadata$`.sample`, pattern = "(.*)\\|(.*)", replacement = "\\1"))))
+  }
+  tibble_metadata[, "color_values"] <- ggplot_colour_values
+  
   # get PC loadings
   ## column names of the matrix need to be split by a "|", like this: condition|replicate
   # tibble_pca_loadings <- pca_result[["rotation"]] %>% tibble::as_tibble(rownames = ".sample")
@@ -3243,15 +3261,6 @@ ggplot_plotly_pca <- function(table_matrix, .scale = TRUE, condition_order = NUL
     tibble_metadata, 
     by = ".sample"
   )
-  
-  # automatically make color scale if not specified by the user
-  if (is.null(ggplot_colour_limits) == TRUE) {
-    ggplot_colour_limits <- levels(tibble_pca_loadings$condition)
-  }
-  
-  if (is.null(ggplot_colour_values) == TRUE) {
-    ggplot_colour_values <- rainbow(n = length(levels(tibble_pca_loadings$condition)))
-  }
   
   # plot pca for multiple depths all in one go.
   purrr::map2(
@@ -3283,13 +3292,13 @@ ggplot_plotly_pca <- function(table_matrix, .scale = TRUE, condition_order = NUL
       
       ggplot_embedding <- ggplot2::ggplot() + 
         # shapes
-        (if (plot_shapes == TRUE) {ggplot2::geom_point(mapping = do.call(what = ggplot2::aes, args = list("x" = tibble_pca_loadings_with_centroids$centroid_x, "y" = tibble_pca_loadings_with_centroids$centroid_y, "shape" = tibble_pca_loadings_with_centroids$replicate, "color" = tibble_pca_loadings_with_centroids$condition, "fill" = tibble_pca_loadings_with_centroids$condition) %>% purrr::splice(tibble_pca_loadings_with_centroids %>% dplyr::select(-`.sample`, -contains(match = "PC", ignore.case = FALSE), -condition, -replicate) %>% purrr::array_tree(margin = 2))), size = point_size) } else {ggplot2::geom_blank(aes(x = tibble_pca_loadings_with_centroids$V1, y = tibble_pca_loadings_with_centroids$V2))}) +
+        (if (plot_shapes == TRUE) {ggplot2::geom_point(mapping = do.call(what = ggplot2::aes, args = list("x" = tibble_pca_loadings_with_centroids$centroid_x, "y" = tibble_pca_loadings_with_centroids$centroid_y, "shape" = tibble_pca_loadings_with_centroids$replicate, "color" = tibble_pca_loadings_with_centroids$color_limits, "fill" = tibble_pca_loadings_with_centroids$color_limits) %>% purrr::splice(tibble_pca_loadings_with_centroids %>% dplyr::select(-`.sample`, -contains(match = "PC", ignore.case = FALSE), -condition, -replicate) %>% purrr::array_tree(margin = 2))), size = point_size) } else {ggplot2::geom_blank(aes(x = tibble_pca_loadings_with_centroids$V1, y = tibble_pca_loadings_with_centroids$V2))}) +
         scale_shape_manual(name = "Replicate", values = 1:length(replicate_order)) +
         # centroid labels
-        (if (centroid_labels == TRUE) {ggplot2::geom_text(data = tibble_pca_loadings_with_centroids, mapping = do.call(what = ggplot2::aes, args = list("x" = tibble_pca_loadings_with_centroids$centroid_x, "y" = tibble_pca_loadings_with_centroids$centroid_y, "label" = tibble_pca_loadings_with_centroids$centroid_number, "color" = tibble_pca_loadings_with_centroids$condition) %>% purrr::splice(tibble_pca_loadings_with_centroids %>% dplyr::select(-`.sample`, -contains(match = "PC", ignore.case = FALSE), -condition, -replicate) %>% purrr::array_tree(margin = 2))), size = centroid_label_size)} else {geom_blank(aes(x = tibble_pca_loadings_with_centroids$centroid_x, y = tibble_pca_loadings_with_centroids$centroid_y))}) +
+        (if (centroid_labels == TRUE) {ggplot2::geom_text(data = tibble_pca_loadings_with_centroids, mapping = do.call(what = ggplot2::aes, args = list("x" = tibble_pca_loadings_with_centroids$centroid_x, "y" = tibble_pca_loadings_with_centroids$centroid_y, "label" = tibble_pca_loadings_with_centroids$centroid_number, "color" = tibble_pca_loadings_with_centroids$color_limits) %>% purrr::splice(tibble_pca_loadings_with_centroids %>% dplyr::select(-`.sample`, -contains(match = "PC", ignore.case = FALSE), -condition, -replicate) %>% purrr::array_tree(margin = 2))), size = centroid_label_size)} else {geom_blank(aes(x = tibble_pca_loadings_with_centroids$centroid_x, y = tibble_pca_loadings_with_centroids$centroid_y))}) +
         
-        scale_fill_manual(name = "Condition", breaks = ggplot_colour_limits, limits = ggplot_colour_limits, values = ggplot_colour_values) +
-        scale_colour_manual(name = "Condition", breaks = ggplot_colour_limits, limits = ggplot_colour_limits, values = ggplot_colour_values) +
+        scale_fill_manual(name = "Condition", breaks = tibble_metadata$color_limits, limits = tibble_metadata$color_limits, values = tibble_metadata$color_values) +
+        scale_colour_manual(name = "Condition", breaks = tibble_metadata$color_limits, limits = tibble_metadata$color_limits, values = tibble_metadata$color_values) +
         
         ggtitle(paste("PCA loadings\n", graph_title, sep = "")) +
         
