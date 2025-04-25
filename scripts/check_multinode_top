@@ -1,0 +1,1 @@
+for i in $(qstat -an1 139934189.gadi-pbs | awk 'NR == 6{print $12}' | awk 'gsub(/\/0\*[0-9]+\+/, " "); {print $0}'); do ssh -o StrictHostKeyChecking=no "al4695@"$i".gadi.nci.org.au"  'top -b -n 1'; done
