@@ -1,1 +1,2 @@
-for i in $(qstat -an1 139934189.gadi-pbs | awk 'NR == 6{print $12}' | awk '{gsub(/\/.\*[0-9]+\+{0,1}/, " "); print $0}'); do ssh -o StrictHostKeyChecking=no "al4695@"$i".gadi.nci.org.au"  'top -b -n 1 -o %MEM'; done
+for i in $(qstat -an1 139934189.gadi-pbs | awk 'NR == 6{print $12}' | awk '{gsub(/\/.\*[0-9]+\+{0,1}/, " "); print $0}'); do echo "========> "$i; ssh -o StrictHostKeyChecking=no "al4695@"$i".gadi.nci.org.au"
+  'top -b -n 1 -o %MEM | tail -n +7 | head -n 5'; done
