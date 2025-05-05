@@ -32,6 +32,19 @@ echo "====> Dry run command:"
 cat $TMPDIR"tmp_command1.txt"
 echo -e "\n"
 
+# user verify that commands parsed correctly
+while true; do
+    read -e -p "Confirm that commands have passed correctly (Y/N): " stdin_user_verify
+    if [ "$stdin_user_verify" = "Y" ]; then
+        echo -e "\nExecuting...\n"
+        break
+    elif [ "$stdin_user_verify" = "N" ]; then
+        exit
+    else
+        echo -e "\nType in Y or N\n"
+    fi
+done
+
 cat $TMPDIR"/nci_multinode_envfile.txt" $TMPDIR"tmp_command1.txt" > $TMPDIR"tmp_command.txt"
 
 bash $TMPDIR"tmp_command.txt" > $TMPDIR"nci_multinode_cmdfile_L2.txt"

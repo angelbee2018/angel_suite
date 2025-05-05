@@ -1,17 +1,6 @@
-al_splitindices <- function (index_length, number_of_chunks) 
-{
-  if (number_of_chunks <= 0L) 
-    stop("must specify 1 or more chunks")
-  else if (number_of_chunks == 1L | index_length == 1L) 
-    return(list(list("start" = 1, "end" = index_length)))
-  else {
-    # fuzz <- min((index_length - 1L)/1000, 0.4 * index_length/number_of_chunks)
-    # breaks <- seq(1 - fuzz, index_length + fuzz, length.out = number_of_chunks + 1L)
-    breaks <- seq(1, index_length + 0.1, length.out = number_of_chunks + 1)
-    output_start_ends <- lapply(X = 1:(length(breaks) - 1), FUN = function(a1) {return(list("start" = ceiling(max(1, breaks[a1])), "end" = floor(min(index_length, breaks[a1 + 1]))))} )
-    return(output_start_ends)
-  }
-}
+# MC FUNCTIONS
+## wrappers for MC that make computation easier
+## parallel:::mcparallel
 
 mc_pmap <- function(
     .l, .f, 
