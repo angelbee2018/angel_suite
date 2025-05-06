@@ -456,7 +456,7 @@ nciparallel_pmap <- function(
       # make df_process_status chunknames consistent with names(list_workers)
       df_process_status <- merge(x = data.frame("chunkname" = names(list_workers)), y = df_ps_child_processes, by = "chunkname", all.x = TRUE)
       
-      df_process_status[is.na(df_process_status$s), "S"] <- "missing"
+      df_process_status[is.na(df_process_status$s), "s"] <- "missing"
       df_process_status$isalive <- !grepl(x = df_process_status$s, pattern = "Z|X|T|t|missing", ignore.case = FALSE)
       
       vector_names_of_chunks_alive <- df_process_status[df_process_status$isalive == TRUE, ]$chunkname
