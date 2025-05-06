@@ -20,6 +20,19 @@
 ###   - splicing: is always ordered
 ###   - save as chunks is NOT needed because if the result was so gigantic that it couldnt be spliced into a single instance, the user code should already account for that.
 
+# IMPORTANT ###
+## It is essential that you run the following commands in bash BEFORE launching your compute job. 
+## This adds your ssh key to yourself so that the polling algorithm can fetch the process status without being stalled by password requests.
+# # If you don’t already have one—create a key with no passphrase:
+# ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N ""
+# cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys
+# chmod 600 ~/.ssh/authorized_keys
+###############
+
+# KNOWN BUGS THAT ARE OUT OF OUR CONTROL ###
+# - if running in ARE, you need to "File > Quit Session" before each run, otherwise `echo $PBS_JOBID` will reflect an old job
+############################################
+
 ## .dedicated_mgmt_rank: nci-parallel has a feature: '--dedicated,-d dedicate rank 0 to task management'
 ## .run_in_background: frees up the R process to do other things. but by definition, it will NEVER return a result directly to R and chunks are always saved to disk.
 nciparallel_pmap <- function(
@@ -33,20 +46,57 @@ nciparallel_pmap <- function(
   
   # DEBUG ###
   # .l = list(
-  #   "b1" = 1:20
+  #   "a1" = list.files(path = vcf_dir, pattern = "\\_OM\\_DNA\\_blood\\.hard\\-filtered\\.vcf$") %>% gsub(pattern = "\\_OM\\_DNA\\_blood\\.hard\\-filtered\\.vcf$", replacement = ""),
+  #   "a2" = 1:length(list.files(path = vcf_dir, pattern = "\\_OM\\_DNA\\_blood\\.hard\\-filtered\\.vcf$"))
   # )
-  # .no_workers = 20
-  # .no_chunks <- 20
-  # .globals_mode = "user"
+  # .no_workers = 56
+  # .no_chunks = length(list.files(path = vcf_dir, pattern = "\\_OM\\_DNA\\_blood\\.hard\\-filtered\\.vcf$"))
+  # .no_workers_per_node = 28
+  # .no_cores_per_worker = 28
+  # .commission_mode = "nci_parallel_managed_round_robin"
+  # .f = function(a1, a2) {
+  # 
+  #   # DEBUG ###
+  #   # a1 <- list.files(path = vcf_dir, pattern = "\\_OM\\_DNA\\_blood\\.hard\\-filtered\\.vcf$") %>% gsub(pattern = "\\_OM\\_DNA\\_blood\\.hard\\-filtered\\.vcf$", replacement = "") %>% .[[4]]
+  #   ###########
+  # 
+  #   cat(paste("Progress: ", a2, "\n", sep = ""))
+  # 
+  #   vcfr_blood <- vcfR::read.vcfR(file = paste(vcf_dir, a1, "_OM_DNA_blood.hard-filtered.vcf", sep = ""))
+  # 
+  #   tibble_fixed_data_reduced <- vcfr_blood@fix %>% tibble::as_tibble()
+  #   tibble_fixed_data_reduced <- tibble_fixed_data_reduced[tibble_fixed_data_reduced$FILTER == "PASS", ]
+  #   tibble_fixed_data_reduced <- tibble_fixed_data_reduced[, c("CHROM", "POS", "REF", "ALT", "INFO")]
+  #   colnames(tibble_fixed_data_reduced)[colnames(tibble_fixed_data_reduced) == "INFO"] <- paste("AC_", a1, sep = "")
+  #   tibble_fixed_data_reduced[grep(x = tibble_fixed_data_reduced[[paste("AC_", a1, sep = "")]], pattern = "AC\\=", invert = TRUE), paste("AC_", a1, sep = "")] <- "1"
+  #   tibble_fixed_data_reduced[, paste("AC_", a1, sep = "")] <- tibble_fixed_data_reduced[[paste("AC_", a1, sep = "")]] %>% gsub(pattern = "AC\\=([^;]+);.*", replacement = "\\1")
+  #   tibble_fixed_data_reduced <- split_delimited_columns_in_table2(input_table = tibble_fixed_data_reduced, target_colnames = c("ALT", paste("AC_", a1, sep = "")), split = "\\,")
+  # 
+  #   # tibble_genotype_data <- vcfr_blood@gt %>% tibble::as_tibble()
+  # 
+  #   L1_tibble_matrix_recipient_variant_presence <- dplyr::full_join(tibble_variants_database, tibble_fixed_data_reduced)
+  #   L1_tibble_matrix_recipient_variant_presence[is.na(L1_tibble_matrix_recipient_variant_presence[[paste("AC_", a1, sep = "")]]), paste("AC_", a1, sep = "")] <- 0
+  # 
+  #   # data.table::fwrite(x = L1_tibble_matrix_recipient_variant_presence[, paste("AC_", a1, sep = "")], file = paste(r_results_dir, paste(vector_experiment_tag, collapse = "_"), "_vector_variant_presence_recipient_temp_", a2, ".txt", sep = ""), sep = "\t", quote = FALSE, row.names = FALSE, col.names = TRUE)
+  # 
+  #   return(L1_tibble_matrix_recipient_variant_presence[[paste("AC_", a1, sep = "")]])
+  # 
+  #   # return(NULL)
+  # 
+  # }
+  # .dedicated_mgmt_rank = FALSE
+  # .use_parallel_for_mgmt = FALSE
+  # .run_in_background = FALSE
+  # .job_name = NULL
+  # .globals_save_compress = TRUE
   # .re_export = TRUE
-  # .intermediate_files_dir = tempdir()
-  # .user_global_objects = c()
-  # .status_messages_dir = paste(tempdir(), sep = "")
-  # .progress <- TRUE
-  # .job_name = "test"
-  # .splicing_order = "ordered"
-  # .f = function(b1) {set.seed(b1);Sys.sleep(runif(n = 1, min = 3, max = 5)); return(list(LETTERS[b1]))}
-  # .debug <- FALSE
+  # .globals_mode = "auto"
+  # .user_global_objects = NULL
+  # .intermediate_files_dir = NULL
+  # .keep_intermediate_files = FALSE
+  # .status_messages_dir = NULL
+  # .progress = TRUE
+  # .debug = FALSE
   ###########
   
   for (i in c("globals", "parallel", "utils", "lubridate", "qs")) {
@@ -313,20 +363,20 @@ nciparallel_pmap <- function(
   #     bash ... 2
   #     bash ... 3
   #     bash ... 4
-  # L2: declare bash variables, calling Rscript <L3.txt> - 1 file, L1 parameters accepted
+  # L2: declare bash variables, calling Rscript <L3.R> - 1 file, L1 parameters accepted
   # L3: the actual commands in R - 1 file, parameter passthrough
   
   # function_to_run <- function(.l_current, .f, .intermediate_files_dir, .job_name, .progress, .debug, vector_global_variables, vector_global_packages, ..i) {
-    
+  
   # commandArgs(trailingOnly = TRUE)
   # [1] ..i (chunk no.)
   
   # L1 ####
-  writeLines(text = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L2.txt ", 1:.no_chunks, sep = ""), con = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L1.txt", sep = ""))
+  writeLines(text = paste("bash ", .intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L2.txt ", 1:.no_chunks, sep = ""), con = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L1.txt", sep = ""))
   # END L1 ####
   
   # L2 ####
-  # system(command = paste("module load nci-parallel >> \"", .intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L2.txt\"", sep = ""))
+  system(command = paste("module load nci-parallel >> \"", .intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L2.txt\"", sep = ""))
   system(command = paste("printenv | grep ^PATH= | sed 's|^\\([^=]*\\)=\\(.*\\)|export \\1=\"\\2\"|g' >> ", .intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L2.txt", sep = ""))
   system(command = paste("printenv | grep ^LIBRARY_PATH= | sed 's|^\\([^=]*\\)=\\(.*\\)|export \\1=\"\\2\"|g' >> ", .intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L2.txt", sep = ""))
   system(command = paste("printenv | grep ^LD_LIBRARY_PATH= | sed 's|^\\([^=]*\\)=\\(.*\\)|export \\1=\"\\2\"|g' >> ", .intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L2.txt", sep = ""))
@@ -334,41 +384,41 @@ nciparallel_pmap <- function(
   system(command = paste("printenv | grep ^TMPDIR= | sed 's|^\\([^=]*\\)=\\(.*\\)|export \\1=\"\\2\"|g' >> ", .intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L2.txt", sep = ""))
   
   # $1 ..i (chunk no.)
-  write(x = paste("Rscript ", .intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.txt $1 ", .epoch_time, " > ", .status_messages_dir, "/", .job_name, "_chunk_$i.stdout 2> ", .status_messages_dir, "/", .job_name, "_chunk_$i.stderr", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L2.txt", sep = ""), append = TRUE)
+  write(x = paste("Rscript ", .intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.R $1 ", .epoch_time, " > ", .status_messages_dir, "/", .job_name, "_chunk_$i.stdout 2> ", .status_messages_dir, "/", .job_name, "_chunk_$i.stderr", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L2.txt", sep = ""), append = TRUE)
   # END L2 ####
   
   # L3 ####
-  write(x = "", file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.txt", sep = ""), append = FALSE)
+  write(x = "", file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.R", sep = ""), append = FALSE)
   
-  # write(x = paste("library(qs)", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.txt", sep = ""), append = TRUE)
+  # write(x = paste("library(qs)", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.R", sep = ""), append = TRUE)
   
-  write(x = paste(".intermediate_files_dir <- \"", .intermediate_files_dir, "\"", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.txt", sep = ""), append = TRUE)
+  write(x = paste(".intermediate_files_dir <- \"", .intermediate_files_dir, "\"", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.R", sep = ""), append = TRUE)
   
-  write(x = paste(".vector_global_packages <- qs::qread(file = \"", .intermediate_files_dir, "/", .job_name, "_vector_global_packages.qs", "\")", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.txt", sep = ""), append = TRUE)
-  write(x = paste(".vector_global_variables <- qs::qread(file = \"", .intermediate_files_dir, "/", .job_name, "_vector_global_variables.qs", "\")", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.txt", sep = ""), append = TRUE)
-  write(x = paste(".l <- qs::qread(file = paste(\"", .intermediate_files_dir, "/", .job_name, "_.l_chunk_\", commandArgs(trailingOnly = TRUE)[1], \".qs\", sep = \"\")", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.txt", sep = ""), append = TRUE)
-  write(x = paste(".f <- qs::qread(file = \"", .intermediate_files_dir, "/", .job_name, "_.f.qs", "\")", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.txt", sep = ""), append = TRUE)
+  write(x = paste(".vector_global_packages <- qs::qread(file = \"", .intermediate_files_dir, "/", .job_name, "_vector_global_packages.qs", "\")", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.R", sep = ""), append = TRUE)
+  write(x = paste(".vector_global_variables <- qs::qread(file = \"", .intermediate_files_dir, "/", .job_name, "_vector_global_variables.qs", "\")", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.R", sep = ""), append = TRUE)
+  write(x = paste(".l <- qs::qread(file = paste(\"", .intermediate_files_dir, "/", .job_name, "_.l_chunk_\", commandArgs(trailingOnly = TRUE)[1], \".qs\", sep = \"\"))", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.R", sep = ""), append = TRUE)
+  write(x = paste(".f <- qs::qread(file = \"", .intermediate_files_dir, "/", .job_name, "_.f.qs", "\")", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.R", sep = ""), append = TRUE)
   
-  write(x = paste("lapply(.vector_global_packages, library, character.only = TRUE)", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.txt", sep = ""), append = TRUE)
+  write(x = paste("lapply(.vector_global_packages, library, character.only = TRUE)", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.R", sep = ""), append = TRUE)
   
   write(x = paste("for (i in .vector_global_variables) {
     assign(x = i, value = qs::qread(file = paste(\"", .intermediate_files_dir, "\", i, \".qs\", sep = \"\")), envir = .GlobalEnv)
-  }", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.txt", sep = ""), append = TRUE)
+  }", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.R", sep = ""), append = TRUE)
   
-  write(x = paste("if (.debug == TRUE) {
+  write(x = paste("if (", .debug, " == TRUE) {
     print(\"ls before pmap\")
     print(ls(all.names = TRUE))
-  }", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.txt", sep = ""), append = TRUE)
+  }", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.R", sep = ""), append = TRUE)
   
   write(x = paste("obj <- purrr::pmap(
-    .l = .l_current,
+    .l = .l,
     .f = .f,
-    .progress = .progress
-  )", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.txt", sep = ""), append = TRUE)
+    .progress = ", .progress, "
+  )", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.R", sep = ""), append = TRUE)
   
-  write(x = paste("qs::qsave(x = obj, file = paste(\"", .intermediate_files_dir, "/", .job_name, "_chunk_\", commandArgs(trailingOnly = TRUE)[1], \".qs\", sep = \"\"))", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.txt", sep = ""), append = TRUE)
+  write(x = paste("qs::qsave(x = obj, file = paste(\"", .intermediate_files_dir, "/", .job_name, "_chunk_\", commandArgs(trailingOnly = TRUE)[1], \".qs\", sep = \"\"))", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.R", sep = ""), append = TRUE)
   
-  write(x = paste("return(NULL)", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.txt", sep = ""), append = TRUE)
+  write(x = paste("return(NULL)", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.R", sep = ""), append = TRUE)
   # END L3 ####
   
   message("Commencing computation")
@@ -390,121 +440,126 @@ nciparallel_pmap <- function(
   
   # END INITIALISATION ###
   
-  mpirun_mother_pid <- system(command = paste("sh -c 'echo $$; exec mpirun --np ", .no_workers, " --map_by ppr:", .no_workers_per_node, ":node:PE=", .no_cores_per_worker, " --oversubscribe --bind-to none nci-parallel --input-file ", .intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L1.txt ", .epoch_time, " &'", sep = ""), intern = TRUE)[1]
+  system(command = paste("echo $$ > ", .intermediate_files_dir, "/", .job_name, "_nci_multinode_mother_pid.txt; module load nci-parallel; mpirun --np ", .no_workers, " --map-by ppr:", .no_workers_per_node, ":node:PE=", .no_cores_per_worker, " --oversubscribe --bind-to none nci-parallel --dedicated --input-file ", .intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L1.txt ", .epoch_time, " &", sep = ""), intern = FALSE)
+  
+  mpirun_mother_pid <- readLines(con = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_mother_pid.txt", sep = ""))
   
   while(all(vector_exit_codes <= 0)) {
     
     # formulate our own exit codes
-      
-      Sys.getpid()
-      system("hostname", intern = TRUE)
-      
-      ## retrieve system process status
-      pbs_jobname <- system("echo $PBS_JOBNAME", intern = TRUE)
-      vector_node_hostnames <- system(paste("qstat -an1 ", pbs_jobname, " | awk 'NR == 6{print $12}' | awk '{gsub(/\/.\*[0-9]+\+{0,1}/, \" \"); print $0}'", sep = ""), intern = TRUE)
-      list_df_ps_child_processes <- lapply(
-        X = vector_node_hostnames, 
-        FUN = function(a1) {
-          
-          vector_ps_status <- trimws(system(paste("ssh -o StrictHostKeyChecking=no ", system("echo $USER", intern = TRUE), "@", a1, ".gadi.nci.org.au 'ps -eo pid,ppid,pgid,s,cmd'", sep = ""), intern = TRUE))[-1]
-          
-          # we are doing this because there's no way to split by spaces without also separating the CMD column. no, tab separation attempts don't work.
-          df_ps <- data.frame(
-            "pid" = gsub(x = vector_ps_status, pattern = "^([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+(.+)$", replacement = "\\1"),
-            "ppid" = gsub(x = vector_ps_status, pattern = "^([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+(.+)$", replacement = "\\2"),
-            "pgid" = gsub(x = vector_ps_status, pattern = "^([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+(.+)$", replacement = "\\3"),
-            "s" = gsub(x = vector_ps_status, pattern = "^([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+(.+)$", replacement = "\\4"),
-            "cmd" = gsub(x = vector_ps_status, pattern = "^([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+(.+)$", replacement = "\\5")
-          )
-          
-          df_ps_nciparallelprocs <- df_ps[grep(x = df_ps$cmd, pattern = paste("nci_parallel.+", .epoch_time, sep = "")), ]
-          
-          # successively traverse the parent id tree until we arrive at rscript/rsession
-          # for L3 Rscript processes, the reason why we cant just search for anything R/rsession followed by the epoch time is because there may be other processes at the same level that have been spawned by our job, but are not immediately L3 calls.
-          df_ps_L1procs <- df_ps[df_ps$ppid == df_ps_nciparallelprocs$pid, ]
-          df_ps_L2procs <- df_ps[df_ps$ppid == df_ps_L1procs$pid, ]
-          df_ps_L3procs <- df_ps[df_ps$ppid == df_ps_L2procs$pid, ]
-          df_ps_child <- df_ps[(df_ps$ppid == df_ps_L2procs$pid) & grepl(x = df_ps$cmd, pattern = paste("(R|rsession).+", .epoch_time, sep = ""), ignore.case = FALSE), ]
-          df_ps_child$hostname <- "a1"
-          
-          return(df_ps_child)
-          
-        } )
-      
-      # now, our pidtable has an additional hostname column
-      # df_ps_child_processes is a table of all child R/rsession processes with pid, status and hostname
-      ## make a base version of dplyr::bind_rows
-      df_ps_child_processes <- list_df_ps_child_processes[[1]][0, ]
-      for (i in (1:length(list_df_ps_child_processes))) {
-        df_ps_child_processes <- rbind(df_ps_child_processes, list_df_ps_child_processes[[i]])
-      }
-      # infer chunk number from the chunking command
-      df_ps_child_processes$chunkname <- gsub(x = df_ps_child_processes$cmd, pattern = paste(".*_nci_multinode_cmdfile_L3.txt ([^ ]+) ", .epoch_time, " >.*", sep = ""), replacement = "chunk_\\1")
-      
-      ## deal with the chunks we expect to be still running or not
-      if (length(vector_current_chunks_spliced) > 0) {
-        vector_names_of_current_chunks_spliced <- paste("chunk_", vector_current_chunks_spliced, sep = "")
+    
+    Sys.getpid()
+    system("hostname", intern = TRUE)
+    
+    ## retrieve system process status
+    ## KNOWN BUG: PBS_JOBID
+    pbs_jobname <- system("echo $PBS_JOBID", intern = TRUE)
+    vector_node_hostnames <- system(paste("qstat -an1 ", pbs_jobname, " | awk 'NR == 6{print $12}' | awk '{gsub(/\\/.\\*[0-9]+\\+{0,1}/, \" \"); print $0}'", sep = ""), intern = TRUE)
+    vector_node_hostnames <- unlist(strsplit(trimws(vector_node_hostnames), "\\s"), recursive =  TRUE)
+    list_df_ps_child_processes <- lapply(
+      X = vector_node_hostnames, 
+      FUN = function(a1) {
         
-        if (.debug == TRUE) {
-          global_vector_current_chunks_spliced <<- vector_current_chunks_spliced
-        }
+        # vector_ps_status <- trimws(system(paste("ssh -o StrictHostKeyChecking=no ", system("echo $USER", intern = TRUE), "@", a1, ".gadi.nci.org.au 'ps -eo pid,ppid,pgid,s,cmd'", sep = ""), intern = TRUE))[-1]
+        vector_ps_status <- trimws(system(paste("ssh -o StrictHostKeyChecking=no ", a1, " 'ps -eo pid,ppid,pgid,s,cmd'", sep = ""), intern = TRUE))[-1]
         
-      } else {
-        vector_names_of_current_chunks_spliced <- character()
+        # we are doing this because there's no way to split by spaces without also separating the CMD column. no, tab separation attempts don't work.
+        df_ps <- data.frame(
+          "pid" = gsub(x = vector_ps_status, pattern = "^([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+(.+)$", replacement = "\\1"),
+          "ppid" = gsub(x = vector_ps_status, pattern = "^([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+(.+)$", replacement = "\\2"),
+          "pgid" = gsub(x = vector_ps_status, pattern = "^([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+(.+)$", replacement = "\\3"),
+          "s" = gsub(x = vector_ps_status, pattern = "^([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+(.+)$", replacement = "\\4"),
+          "cmd" = gsub(x = vector_ps_status, pattern = "^([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+(.+)$", replacement = "\\5")
+        )
+        
+        df_ps_nciparallelprocs <- df_ps[grep(x = df_ps$cmd, pattern = paste("nci_parallel.+", .epoch_time, sep = "")), ]
+        
+        # successively traverse the parent id tree until we arrive at rscript/rsession
+        # for L3 Rscript processes, the reason why we cant just search for anything R/rsession followed by the epoch time is because there may be other processes at the same level that have been spawned by our job, but are not immediately L3 calls.
+        df_ps_L1procs <- df_ps[df_ps$ppid == df_ps_nciparallelprocs$pid, ]
+        df_ps_L2procs <- df_ps[df_ps$ppid == df_ps_L1procs$pid, ]
+        df_ps_L3procs <- df_ps[df_ps$ppid == df_ps_L2procs$pid, ]
+        df_ps_child <- df_ps[(df_ps$ppid == df_ps_L2procs$pid) & grepl(x = df_ps$cmd, pattern = paste("(R|rsession).+", .epoch_time, sep = ""), ignore.case = FALSE), ]
+        df_ps_child$hostname <- a1
+        
+        return(df_ps_child)
+        
+      } )
+    
+    # now, our pidtable has an additional hostname column
+    # df_ps_child_processes is a table of all child R/rsession processes with pid, status and hostname
+    ## make a base version of dplyr::bind_rows
+    df_ps_child_processes <- list_df_ps_child_processes[[1]][0, ]
+    for (i in (1:length(list_df_ps_child_processes))) {
+      df_ps_child_processes <- rbind(df_ps_child_processes, list_df_ps_child_processes[[i]])
+    }
+    # infer chunk number from the chunking command
+    df_ps_child_processes$chunkname <- gsub(x = df_ps_child_processes$cmd, pattern = paste(".*_nci_multinode_cmdfile_L3.R --args ([^ ]+) ", .epoch_time, sep = ""), replacement = "chunk_\\1")
+    
+    ## deal with the chunks we expect to be still running or not
+    if (length(vector_current_chunks_spliced) > 0) {
+      vector_names_of_current_chunks_spliced <- paste("chunk_", vector_current_chunks_spliced, sep = "")
+      
+      if (.debug == TRUE) {
+        global_vector_current_chunks_spliced <<- vector_current_chunks_spliced
       }
       
-      # make df_process_status chunknames consistent with names(list_workers)
-      df_process_status <- merge(x = data.frame("chunkname" = names(list_workers)), y = df_ps_child_processes, by = "chunkname", all.x = TRUE)
-      
-      df_process_status[is.na(df_process_status$s), "s"] <- "missing"
-      df_process_status$isalive <- !grepl(x = df_process_status$s, pattern = "Z|X|T|t|missing", ignore.case = FALSE)
-      
-      vector_names_of_chunks_alive <- df_process_status[df_process_status$isalive == TRUE, ]$chunkname
-      
-      vector_exit_codes <- mapply(
-        "a1" = list_workers,
-        "a2" = names(list_workers),
-        "a3" = df_process_status$isalive,
-        FUN = function(a1, a2, a3) {
+    } else {
+      vector_names_of_current_chunks_spliced <- character()
+    }
+    
+    # make df_process_status chunknames consistent with names(list_workers)
+    df_process_status <- merge(x = data.frame("chunkname" = names(list_workers)), y = df_ps_child_processes, by = "chunkname", all.x = TRUE)
+    
+    df_process_status[is.na(df_process_status$s), "s"] <- "missing"
+    df_process_status$isalive <- !grepl(x = df_process_status$s, pattern = "Z|X|T|t|missing", ignore.case = FALSE)
+    
+    vector_names_of_chunks_alive <- df_process_status[df_process_status$isalive == TRUE, ]$chunkname
+    
+    vector_exit_codes <- mapply(
+      "a1" = list_workers,
+      "a2" = names(list_workers),
+      "a3" = df_process_status$isalive,
+      FUN = function(a1, a2, a3) {
+        
+        # logical_process_is_alive <- type.convert(system(command = paste("ps -r ", a1$pid, " | wc -l", sep = ""), intern = TRUE), as.is = TRUE) > 1
+        
+        logical_process_is_alive <- a3
+        
+        exitmsg_path <- paste(.intermediate_files_dir, "/", .job_name, "_", a2, "_exitmsg.txt", sep = "")
+        
+        if (file.exists(exitmsg_path)) {
+          exitmsg <- readLines(con = exitmsg_path)
           
-          # logical_process_is_alive <- type.convert(system(command = paste("ps -r ", a1$pid, " | wc -l", sep = ""), intern = TRUE), as.is = TRUE) > 1
-          
-          logical_process_is_alive <- a3
-          
-          exitmsg_path <- paste(.intermediate_files_dir, "/", .job_name, "_", a2, "_exitmsg.txt", sep = "")
-          
-          if (file.exists(exitmsg_path)) {
-            exitmsg <- readLines(con = exitmsg_path)
-            
-            if (.debug == TRUE) {
-              print("exitmsg")
-              print(exitmsg)
-              print("a2 %in% vector_names_of_current_chunks_spliced")
-              print(a2 %in% vector_names_of_current_chunks_spliced)
-            }
-            
-            if (c(exitmsg, "PLACEHOLDER")[1] == "GRACEFUL EXIT" | a2 %in% vector_names_of_current_chunks_spliced) {
-              return(0)
-            } else if (logical_process_is_alive == TRUE) {
-              return(-1)
-            } else if (logical_process_is_alive == FALSE) {
-              
-              if (file.exists(paste(.intermediate_files_dir, "/", .job_name, "_", a2, ".qs", sep = ""))) {
-                Sys.sleep(1)
-                exitmsg <- readLines(con = exitmsg_path)
-              }
-              
-              return(1)
-            }
-            
-          } else {
-            return("2")
+          if (.debug == TRUE) {
+            print("exitmsg")
+            print(exitmsg)
+            print("a2 %in% vector_names_of_current_chunks_spliced")
+            print(a2 %in% vector_names_of_current_chunks_spliced)
           }
           
-        } )
-      
-      names(vector_exit_codes) <- names(list_workers)
-      
+          if (c(exitmsg, "PLACEHOLDER")[1] == "GRACEFUL EXIT" | a2 %in% vector_names_of_current_chunks_spliced) {
+            return(0)
+          } else if (logical_process_is_alive == TRUE) {
+            return(-1)
+          } else if (logical_process_is_alive == FALSE) {
+            
+            if (file.exists(paste(.intermediate_files_dir, "/", .job_name, "_", a2, ".qs", sep = ""))) {
+              Sys.sleep(1)
+              exitmsg <- readLines(con = exitmsg_path)
+            }
+            
+            return(1)
+          }
+          
+        } else {
+          return("2")
+        }
+        
+      } )
+    
+    names(vector_exit_codes) <- names(list_workers)
+    
     if (.debug == TRUE) {
       print("df_process_status")
       print(df_process_status)
