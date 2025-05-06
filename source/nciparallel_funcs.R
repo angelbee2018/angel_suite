@@ -1,4 +1,5 @@
 # NCI PARALLEL FUNCTIONS
+## skibidi toilet if you run this script your computer will explode lmfao
 ## R wrapper for launching child processes using the mpirun ... nci-parallel system in NCI Gadi
 
 # nciparallel_pmap
@@ -307,7 +308,7 @@ nciparallel_pmap <- function(
   
   # END CHUNKING ####
   
-  # WRITE JOB DATA TO FILE
+  # WRITE RUNTIME SCRIPTS
   # L1: bash ... 1
   #     bash ... 2
   #     bash ... 3
@@ -605,7 +606,7 @@ nciparallel_pmap <- function(
     if (.debug == TRUE) {
       Sys.sleep(1)
     } else {
-      Sys.sleep(0.1)
+      Sys.sleep(5)
     }
     
   }
