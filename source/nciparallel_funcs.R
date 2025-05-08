@@ -393,7 +393,7 @@ nciparallel_pmap <- function(
   system(command = paste("printenv | grep ^TMPDIR= | sed 's|^\\([^=]*\\)=\\(.*\\)|export \\1=\"\\2\"|g' >> ", .intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L2.txt", sep = ""))
   
   # necessary to test if R can run before we verify
-  write(x = paste("Rscript -e \"q()\"", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L2.txt", sep = ""), append = TRUE)
+  write(x = paste("Rscript -e 'q(save = \"no\")'", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L2.txt", sep = ""), append = TRUE)
   
   write(x = paste("echo \"L2_VERIFY_RSCRIPT\" > \"", .intermediate_files_dir, "/", .job_name, "_nci_multinode_L2_verification_rscript_chunk_\"$1\".txt\"", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L2.txt", sep = ""), append = TRUE)
   
@@ -434,9 +434,9 @@ nciparallel_pmap <- function(
   
   write(x = paste("writeLines(text = \"GRACEFUL_EXIT\", con = paste(\"", .intermediate_files_dir, "/", .job_name, "_chunk_\", commandArgs(trailingOnly = TRUE)[1], \"_exitmsg.txt\", sep = \"\"))", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.R", sep = ""), append = TRUE)
   
-  # write(x = paste("system(paste(\"kill -9 \", Sys.getpid(), sep = \"\"))", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.R", sep = ""), append = TRUE)
+  # write(x = paste("system(paste(\"kill -9 \", Sys.getpid(), \"; wait \", Sys.getpid(), \" 2>/dev/null || true; exit 0\", sep = \"\"))", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.R", sep = ""), append = TRUE)
   
-  write(x = paste("system(paste(\"kill -9 \", Sys.getpid(), \"; wait \", Sys.getpid(), \" 2>/dev/null || true; exit 0\", sep = \"\"))", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.R", sep = ""), append = TRUE)
+  write(x = paste("q(save = \"no\")", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.R", sep = ""), append = TRUE)
   
   # END L3 ####
   
