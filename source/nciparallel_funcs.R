@@ -309,8 +309,11 @@ nciparallel_pmap <- function(
     stop("ERROR: list args have incompatible lengths.")
   }
   
+  # if user has specified more workers than the length to be mapped, reduce number of workers to the length to be mapped and shrink the number of workers per node proportionally, taking the ceiling in case mpirun errors out due to having ordered "not enough nodes"
   if (.no_workers > map_length) {
+    .no_workers_old <- .no_workers
     .no_workers <- map_length
+    .no_workers_per_node <- ceiling(.no_workers_per_node * (.no_workers/.no_workers_old))
   }
   
   if (map_length == 0) {
@@ -398,7 +401,7 @@ nciparallel_pmap <- function(
   write(x = paste("echo \"L2_VERIFY_RSCRIPT\" > \"", .intermediate_files_dir, "/", .job_name, "_nci_multinode_L2_verification_rscript_chunk_\"$1\".txt\"", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L2.txt", sep = ""), append = TRUE)
   
   # $1 ..i (chunk no.)
-  write(x = paste("Rscript ", .intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.R $1 ", .epoch_time, " > \"", .status_messages_dir, "/", .job_name, "_chunk_\"$i\"_stdout.txt\" 2> \"", .status_messages_dir, "/", .job_name, "_chunk_\"$i\"_stderr.txt\"", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L2.txt", sep = ""), append = TRUE)
+  write(x = paste("Rscript ", .intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.R $1 ", .epoch_time, " > \"", .status_messages_dir, "/", .job_name, "_chunk_\"$1\"_stdout.txt\" 2> \"", .status_messages_dir, "/", .job_name, "_chunk_\"$1\"_stderr.txt\"", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L2.txt", sep = ""), append = TRUE)
   # END L2 ####
   
   # L3 ####
@@ -804,28 +807,13 @@ nciparallel_pmap <- function(
     
   }
   
-  # detect error
-  ## if any error, stop all
-  if (any(vector_exit_codes > 0)) {
-    print("Process status per chunk")
-    print(vector_exit_codes)
-    system(command = paste("kill -9 ", paste(df_ps[(df_ps$hostname == origin_hostname_short) & grepl(x = df_ps$cmd, pattern = paste("mpirun.+nci_multinode_cmdfile_L1.txt ", .epoch_time, sep = "")),]$pid, collapse = " "), "; kill -9 ", paste(df_ps[(df_ps$hostname == origin_hostname_short) & grepl(x = df_ps$cmd, pattern = paste(".*_nci_multinode_cmdfile_L3.R --args ([^ ]+) ", .epoch_time, sep = "")),]$pid, collapse = " "), sep = ""), ignore.stdout = TRUE, ignore.stderr = TRUE)
-    # spew out the last 20 status lines for easy debugging
-    # lapply(X = names(vector_exit_codes)[vector_exit_codes > 0], FUN = function(a1) {warning(paste(a1, " stdout (last 20 lines)", sep = "")); warning(system(command = paste("tail -n 20 ", paste(.status_messages_dir, "/", a1, "_stdout.txt", sep = ""), sep = ""))); warning(paste(a1, " stderr (last 20 lines)", sep = "")); warning(system(command = paste("tail -n 20 ", paste(.status_messages_dir, "/", a1, "_stderr.txt", sep = ""), sep = "")))} )
-    options(warning.length = 8170)
-    stop(paste("Exit status failure received on chunks: ", paste(gsub(x = names(vector_exit_codes[vector_exit_codes > 0]), pattern = "chunk_", replacement = ""), collapse = ","), ". \n\nPlease run the following command in order to view the outputs of each worker: \n", "for i in ", paste(names(vector_exit_codes[vector_exit_codes > 0]), collapse = " "), "; do tail -n 20 ", "\"", .status_messages_dir, "\"", "$i\"_stdout.txt\" ", "\"", .status_messages_dir, "\"", "$i\"_stderr.txt\"; done", sep = ""))
-    # } else {
-    # gotta leave the process hanging for a bit so we can verify it finished correctly. THEN we manually kill the child.
-    # lapply(X = list_workers[names(vector_exit_codes)[vector_exit_codes == 0]], FUN = function(a1) {system(command = paste("kill -9 ", mpirun_mother_pid, sep = ""))} )
-  }
-  
   if (.keep_intermediate_files == FALSE) {
     # unlink(list.files(path = .intermediate_files_dir, pattern = paste(.job_name, "_chunk_.*.rds", sep = ""), full.names = TRUE ), recursive = TRUE)
     # unlink(list.files(path = .temp_dir, pattern = paste(.job_name, ".rdata", sep = ""), full.names = TRUE ), recursive = TRUE)
     unlink(list.files(path = .intermediate_files_dir, pattern = ".*", full.names = TRUE ), recursive = TRUE)
   }
   
-  system(command = paste("kill -9 ", paste(df_ps[(df_ps$hostname == origin_hostname_short) & grepl(x = df_ps$cmd, pattern = paste("mpirun.+nci_multinode_cmdfile_L1.txt ", .epoch_time, sep = "")),]$pid, collapse = " "), "; kill -9 ", paste(df_ps[(df_ps$hostname == origin_hostname_short) & grepl(x = df_ps$cmd, pattern = paste(".*_nci_multinode_cmdfile_L3.R --args ([^ ]+) ", .epoch_time, sep = "")),]$pid, collapse = " "), sep = ""), ignore.stdout = TRUE, ignore.stderr = TRUE)
+  # system(command = paste("kill -9 ", paste(df_ps[(df_ps$hostname == origin_hostname_short) & grepl(x = df_ps$cmd, pattern = paste("mpirun.+nci_multinode_cmdfile_L1.txt ", .epoch_time, sep = "")),]$pid, collapse = " "), "; kill -9 ", paste(df_ps[(df_ps$hostname == origin_hostname_short) & grepl(x = df_ps$cmd, pattern = paste(".*_nci_multinode_cmdfile_L3.R --args ([^ ]+) ", .epoch_time, sep = "")),]$pid, collapse = " "), sep = ""), ignore.stdout = TRUE, ignore.stderr = TRUE)
   
   cat("\n")
   
