@@ -24,9 +24,9 @@
 ## It is essential that you run the following commands in bash BEFORE launching your compute job. 
 ## This adds your ssh key to yourself so that the polling algorithm can fetch the process status without being stalled by password requests.
 # # If you don’t already have one—create a key with no passphrase:
-# ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N ""
-# cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys
-# chmod 600 ~/.ssh/authorized_keys
+# ssh-keygen -t ed25519 -N '' -f ~/.ssh/id_ed25519
+# cat ~/.ssh/id_ed25519.pub >>  ~/.ssh/authorized_keys
+# chmod u=rw,go= ~/.ssh/authorized_keys
 ###############
 
 # KNOWN BUGS THAT ARE OUT OF OUR CONTROL ###
@@ -37,8 +37,8 @@
 ## .run_in_background: frees up the R process to do other things. but by definition, it will NEVER return a result directly to R and chunks are always saved to disk.
 nciparallel_pmap <- function(
     .l, .f, 
-    .no_workers = 1, .no_chunks = 1, .no_workers_per_node = 1, .no_cores_per_worker = 1, .commission_mode = c("nci_parallel_managed_round_robin", "r_managed_round_robin"), .dedicated_mgmt_rank = FALSE, .use_parallel_for_mgmt = FALSE, .run_in_background = FALSE,
-    .job_name = NULL, 
+    .no_workers = 1, .no_chunks = 1, .no_workers_per_node = 1, .no_cores_per_worker = 1, .r_process_spawn_wait_time = 120, .commission_mode = c("nci_parallel_managed_round_robin", "r_managed_round_robin"), .dedicated_mgmt_rank = FALSE, .use_parallel_for_mgmt = FALSE, .run_in_background = FALSE,
+    .job_name = NULL, .patience = 5,
     .globals_save_compress = TRUE, .re_export = TRUE, .globals_mode = "auto", .user_global_objects = NULL, 
     .intermediate_files_dir = NULL, .keep_intermediate_files = FALSE, 
     .status_messages_dir = NULL, .progress = TRUE,
@@ -49,10 +49,11 @@ nciparallel_pmap <- function(
   #   "a1" = list.files(path = vcf_dir, pattern = "\\_OM\\_DNA\\_blood\\.hard\\-filtered\\.vcf$") %>% gsub(pattern = "\\_OM\\_DNA\\_blood\\.hard\\-filtered\\.vcf$", replacement = ""),
   #   "a2" = 1:length(list.files(path = vcf_dir, pattern = "\\_OM\\_DNA\\_blood\\.hard\\-filtered\\.vcf$"))
   # )
-  # .no_workers = 56
+  # .no_workers = 16
   # .no_chunks = length(list.files(path = vcf_dir, pattern = "\\_OM\\_DNA\\_blood\\.hard\\-filtered\\.vcf$"))
-  # .no_workers_per_node = 28
+  # .no_workers_per_node = 8
   # .no_cores_per_worker = 28
+  # .r_process_spawn_wait_time = 120
   # .commission_mode = "nci_parallel_managed_round_robin"
   # .f = function(a1, a2) {
   # 
@@ -88,6 +89,7 @@ nciparallel_pmap <- function(
   # .use_parallel_for_mgmt = FALSE
   # .run_in_background = FALSE
   # .job_name = NULL
+  # .patience = 5
   # .globals_save_compress = TRUE
   # .re_export = TRUE
   # .globals_mode = "auto"
@@ -106,8 +108,8 @@ nciparallel_pmap <- function(
   }
   
   if (Sys.info()["sysname"] == "Linux") {
-    if (type.convert(system("ulimit -n", intern = TRUE), as.is = TRUE) < 65536) {
-      warning(paste("System max. open file limit is less than the recommended 65536. Current limit is set to: ", system("ulimit -n", intern = TRUE), ". To fix this, please re-run R from bash terminal after having set `ulimit -n 65536` to avoid possible errors with large jobs and/or large number of workers/chunks.", sep = ""))
+    if (type.convert(system(command = "ulimit -n", intern = TRUE), as.is = TRUE) < 65536) {
+      warning(paste("System max. open file limit is less than the recommended 65536. Current limit is set to: ", system(command = "ulimit -n", intern = TRUE), ". To fix this, please re-run R from bash terminal after having set `ulimit -n 65536` to avoid possible errors with large jobs and/or large number of workers/chunks.", sep = ""))
     }
   }
   
@@ -315,8 +317,11 @@ nciparallel_pmap <- function(
     return(.l[[1]])
   }
   
+  # no_nodes_expected_to_be_utilised <- ceiling(.no_workers/.no_workers_per_node)
+  
   # preallocate worker list
-  list_workers <- list()
+  list_workers <- as.list(paste("chunk_", 1:map_length, sep = ""))
+  names(list_workers) <- paste("chunk_", 1:map_length, sep = "")
   
   # CHUNKING ####
   
@@ -372,25 +377,34 @@ nciparallel_pmap <- function(
   # [1] ..i (chunk no.)
   
   # L1 ####
-  writeLines(text = paste("bash ", .intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L2.txt ", 1:.no_chunks, sep = ""), con = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L1.txt", sep = ""))
+  ## annoyingly, the L1 verification only works when it's called from a script, not through the nci-parallel bash loop. so fucking stupid.
+  writeLines(text = paste("echo \"L1_VERIFY\" > \"", .intermediate_files_dir, "/", .job_name, "_nci_multinode_L1_verification.txt\"", sep = ""), con = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_L1_verification_cmd.txt", sep = ""))
+  
+  writeLines(text = c(paste("bash ", .intermediate_files_dir, "/", .job_name, "_nci_multinode_L1_verification_cmd.txt", sep = ""), paste("bash ", .intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L2.txt ", 1:.no_chunks, sep = "")), con = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L1.txt", sep = ""))
   # END L1 ####
   
   # L2 ####
-  system(command = paste("module load nci-parallel >> \"", .intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L2.txt\"", sep = ""))
+  write(x = paste("echo \"L2_VERIFY_INVOCATION\" > \"", .intermediate_files_dir, "/", .job_name, "_nci_multinode_L2_verification_invocation_chunk_\"$1\".txt\"", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L2.txt", sep = ""), append = FALSE)
+  
   system(command = paste("printenv | grep ^PATH= | sed 's|^\\([^=]*\\)=\\(.*\\)|export \\1=\"\\2\"|g' >> ", .intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L2.txt", sep = ""))
   system(command = paste("printenv | grep ^LIBRARY_PATH= | sed 's|^\\([^=]*\\)=\\(.*\\)|export \\1=\"\\2\"|g' >> ", .intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L2.txt", sep = ""))
   system(command = paste("printenv | grep ^LD_LIBRARY_PATH= | sed 's|^\\([^=]*\\)=\\(.*\\)|export \\1=\"\\2\"|g' >> ", .intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L2.txt", sep = ""))
   system(command = paste("printenv | grep ^R_LIBS_USER= | sed 's|^\\([^=]*\\)=\\(.*\\)|export \\1=\"\\2\"|g' >> ", .intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L2.txt", sep = ""))
   system(command = paste("printenv | grep ^TMPDIR= | sed 's|^\\([^=]*\\)=\\(.*\\)|export \\1=\"\\2\"|g' >> ", .intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L2.txt", sep = ""))
   
+  # necessary to test if R can run before we verify
+  write(x = paste("Rscript -e \"q()\"", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L2.txt", sep = ""), append = TRUE)
+  
+  write(x = paste("echo \"L2_VERIFY_RSCRIPT\" > \"", .intermediate_files_dir, "/", .job_name, "_nci_multinode_L2_verification_rscript_chunk_\"$1\".txt\"", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L2.txt", sep = ""), append = TRUE)
+  
   # $1 ..i (chunk no.)
-  write(x = paste("Rscript ", .intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.R $1 ", .epoch_time, " > ", .status_messages_dir, "/", .job_name, "_chunk_$i.stdout 2> ", .status_messages_dir, "/", .job_name, "_chunk_$i.stderr", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L2.txt", sep = ""), append = TRUE)
+  write(x = paste("Rscript ", .intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.R $1 ", .epoch_time, " > \"", .status_messages_dir, "/", .job_name, "_chunk_\"$i\"_stdout.txt\" 2> \"", .status_messages_dir, "/", .job_name, "_chunk_\"$i\"_stderr.txt\"", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L2.txt", sep = ""), append = TRUE)
   # END L2 ####
   
   # L3 ####
   write(x = "", file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.R", sep = ""), append = FALSE)
   
-  # write(x = paste("library(qs)", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.R", sep = ""), append = TRUE)
+  write(x = paste("writeLines(text = \"\", con = paste(\"", .intermediate_files_dir, "/", .job_name, "_chunk_\", commandArgs(trailingOnly = TRUE)[1], \"_exitmsg.txt\", sep = \"\"))", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.R", sep = ""), append = TRUE)
   
   write(x = paste(".intermediate_files_dir <- \"", .intermediate_files_dir, "\"", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.R", sep = ""), append = TRUE)
   
@@ -418,7 +432,12 @@ nciparallel_pmap <- function(
   
   write(x = paste("qs::qsave(x = obj, file = paste(\"", .intermediate_files_dir, "/", .job_name, "_chunk_\", commandArgs(trailingOnly = TRUE)[1], \".qs\", sep = \"\"))", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.R", sep = ""), append = TRUE)
   
-  write(x = paste("return(NULL)", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.R", sep = ""), append = TRUE)
+  write(x = paste("writeLines(text = \"GRACEFUL_EXIT\", con = paste(\"", .intermediate_files_dir, "/", .job_name, "_chunk_\", commandArgs(trailingOnly = TRUE)[1], \"_exitmsg.txt\", sep = \"\"))", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.R", sep = ""), append = TRUE)
+  
+  write(x = paste("system(paste(\"kill -9 \", Sys.getpid(), sep = \"\"))", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.R", sep = ""), append = TRUE)
+  
+  write(x = paste("system(paste(\"kill -9 \", Sys.getpid(), \"; wait \", Sys.getpid(), \" 2>/dev/null || true; exit 0\", sep = \"\"))", sep = ""), file = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L3.R", sep = ""), append = TRUE)
+  
   # END L3 ####
   
   message("Commencing computation")
@@ -444,57 +463,224 @@ nciparallel_pmap <- function(
   
   mpirun_mother_pid <- readLines(con = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_mother_pid.txt", sep = ""))
   
+  # formulate our own exit codes
+  origin_hostname_raw <- system(command = "hostname", intern = TRUE)
+  
+  ## retrieve system process status
+  ## KNOWN BUG: PBS_JOBID is old if you don't quit session before running
+  pbs_jobname <- system(command = "echo $PBS_JOBID", intern = TRUE)
+  
+  vector_node_hostnames <- system(command = paste("qstat -an1 ", pbs_jobname, " | awk 'NR == 6{print $12}' | awk '{gsub(/\\/.\\*[0-9]+\\+{0,1}/, \" \"); print $0}'", sep = ""), intern = TRUE)
+  vector_node_hostnames <- unlist(strsplit(trimws(vector_node_hostnames), "\\s"), recursive =  TRUE)
+  message(paste("Running job on hosts: ", paste(vector_node_hostnames, collapse = ","), sep = ""))
+  
+  origin_hostname_short <- vector_node_hostnames[unlist(lapply(X = vector_node_hostnames, FUN = function(a1) {return(grep(x = origin_hostname_raw, pattern = a1))}))]
+  global_origin_hostname_short <<- origin_hostname_short
+  
+  # this will hang if L1 cant verify (if nci-parallel is not launching the L1 script)
+  message("Awaiting L1 verification")
+  # we can wait for a bit for the verification to fully write if disk writes are very slow
+  # after a while, we lose patience
+  temp_patience_counter <- 0
+  while (!file.exists(paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_L1_verification.txt", sep = ""))) {
+  }
+  while (readLines(con = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_L1_verification.txt", sep = "")) != "L1_VERIFY" & temp_patience_counter < .patience) {
+    Sys.sleep(1)
+    temp_patience_counter <- temp_patience_counter + 1
+  }
+  message("L1 verification complete")
+  
+  # construct the master table that records process status
+  df_master_process_status <- data.frame(
+    "chunkname" = names(list_workers),
+    "pid" = NA,
+    "hostname" = NA,
+    "exitmsg" = NA,
+    "verify_invocation" = NA,
+    "verify_rscript" = NA,
+    "spawned" = FALSE,
+    "current_process_status_code" = NA,
+    "patience" = 0,
+    "exit_code" = -2
+  )
+  
+  logical_r_processes_have_spawned <- FALSE
+  
   while(all(vector_exit_codes <= 0)) {
     
-    # formulate our own exit codes
+    # we must read exitmsgs BEFORE polling processes because exitmsgs come after process launch
+    vector_exitmsg <- unlist(lapply(
+      X = names(list_workers),
+      FUN = function(a1) {
+        
+        if (file.exists(paste(.intermediate_files_dir, "/", .job_name, "_", a1, "_exitmsg.txt", sep = ""))) {
+          return(readLines(con = paste(.intermediate_files_dir, "/", .job_name, "_", a1, "_exitmsg.txt", sep = "")))
+        } else {
+          return("missing")
+        }
+        
+      } ))
     
-    Sys.getpid()
-    system("hostname", intern = TRUE)
+    # add exitmsg to master process table
+    df_master_process_status$exitmsg <- vector_exitmsg
     
-    ## retrieve system process status
-    ## KNOWN BUG: PBS_JOBID
-    pbs_jobname <- system("echo $PBS_JOBID", intern = TRUE)
-    vector_node_hostnames <- system(paste("qstat -an1 ", pbs_jobname, " | awk 'NR == 6{print $12}' | awk '{gsub(/\\/.\\*[0-9]+\\+{0,1}/, \" \"); print $0}'", sep = ""), intern = TRUE)
-    vector_node_hostnames <- unlist(strsplit(trimws(vector_node_hostnames), "\\s"), recursive =  TRUE)
-    list_df_ps_child_processes <- lapply(
+    vector_multinode_L2_verify_invocation <- unlist(lapply(
+      X = names(list_workers),
+      FUN = function(a1) {
+        
+        if (file.exists(paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_L2_verification_invocation_", a1, ".txt", sep = ""))) {
+          return(readLines(con = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_L2_verification_invocation_", a1, ".txt", sep = "")))
+        } else {
+          return("missing")
+        }
+        
+      } ))
+    
+    vector_multinode_L2_verify_rscript <- unlist(lapply(
+      X = names(list_workers),
+      FUN = function(a1) {
+        
+        if (file.exists(paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_L2_verification_rscript_", a1, ".txt", sep = ""))) {
+          return(readLines(con = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_L2_verification_rscript_", a1, ".txt", sep = "")))
+        } else {
+          return("missing")
+        }
+        
+      } ))
+    
+    # WRANGLE LIVE PROCESS DATA
+    ## this a snapshot of all processes running on the nodes
+    list_df_ps <- lapply(
       X = vector_node_hostnames, 
       FUN = function(a1) {
         
-        # vector_ps_status <- trimws(system(paste("ssh -o StrictHostKeyChecking=no ", system("echo $USER", intern = TRUE), "@", a1, ".gadi.nci.org.au 'ps -eo pid,ppid,pgid,s,cmd'", sep = ""), intern = TRUE))[-1]
-        vector_ps_status <- trimws(system(paste("ssh -o StrictHostKeyChecking=no ", a1, " 'ps -eo pid,ppid,pgid,s,cmd'", sep = ""), intern = TRUE))[-1]
+        # DEBUG ###
+        # a1 <- vector_node_hostnames[1]
+        ###########
+        
+        # we cannot use ssh when checking on the same node
+        if (a1 == origin_hostname_short) {
+          vector_ps_status <- trimws(system(command = "ps -eo pid,ppid,pgid,s,cmd", intern = TRUE))[-1]
+        } else {
+          vector_ps_status <- trimws(system(command = paste("ssh -o StrictHostKeyChecking=no ", a1, " 'ps -eo pid,ppid,pgid,s,cmd'", sep = ""), intern = TRUE))[-1]
+        }
         
         # we are doing this because there's no way to split by spaces without also separating the CMD column. no, tab separation attempts don't work.
-        df_ps <- data.frame(
+        L1_df_ps <- data.frame(
           "pid" = gsub(x = vector_ps_status, pattern = "^([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+(.+)$", replacement = "\\1"),
           "ppid" = gsub(x = vector_ps_status, pattern = "^([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+(.+)$", replacement = "\\2"),
           "pgid" = gsub(x = vector_ps_status, pattern = "^([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+(.+)$", replacement = "\\3"),
           "s" = gsub(x = vector_ps_status, pattern = "^([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+(.+)$", replacement = "\\4"),
-          "cmd" = gsub(x = vector_ps_status, pattern = "^([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+(.+)$", replacement = "\\5")
+          "cmd" = gsub(x = vector_ps_status, pattern = "^([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+(.+)$", replacement = "\\5"),
+          "hostname" = a1
         )
         
-        df_ps_nciparallelprocs <- df_ps[grep(x = df_ps$cmd, pattern = paste("nci_parallel.+", .epoch_time, sep = "")), ]
-        
-        # successively traverse the parent id tree until we arrive at rscript/rsession
-        # for L3 Rscript processes, the reason why we cant just search for anything R/rsession followed by the epoch time is because there may be other processes at the same level that have been spawned by our job, but are not immediately L3 calls.
-        df_ps_L1procs <- df_ps[df_ps$ppid == df_ps_nciparallelprocs$pid, ]
-        df_ps_L2procs <- df_ps[df_ps$ppid == df_ps_L1procs$pid, ]
-        df_ps_L3procs <- df_ps[df_ps$ppid == df_ps_L2procs$pid, ]
-        df_ps_child <- df_ps[(df_ps$ppid == df_ps_L2procs$pid) & grepl(x = df_ps$cmd, pattern = paste("(R|rsession).+", .epoch_time, sep = ""), ignore.case = FALSE), ]
-        df_ps_child$hostname <- a1
-        
-        return(df_ps_child)
+        return(L1_df_ps)
         
       } )
     
     # now, our pidtable has an additional hostname column
     # df_ps_child_processes is a table of all child R/rsession processes with pid, status and hostname
     ## make a base version of dplyr::bind_rows
-    df_ps_child_processes <- list_df_ps_child_processes[[1]][0, ]
-    for (i in (1:length(list_df_ps_child_processes))) {
-      df_ps_child_processes <- rbind(df_ps_child_processes, list_df_ps_child_processes[[i]])
+    df_ps <- list_df_ps[[1]][0, ]
+    for (i in (1:length(list_df_ps))) {
+      df_ps <- rbind(df_ps, list_df_ps[[i]])
     }
+    
+    # simpler way to identify child processes
+    df_ps_child_processes <- df_ps[grep(x = df_ps$cmd, pattern = paste(".*_nci_multinode_cmdfile_L3.R --args ([^ ]+) ", .epoch_time, sep = "")), ]
+    
+    df_master_process_status$current_process_status_code <- NA
+    
     # infer chunk number from the chunking command
-    df_ps_child_processes$chunkname <- gsub(x = df_ps_child_processes$cmd, pattern = paste(".*_nci_multinode_cmdfile_L3.R --args ([^ ]+) ", .epoch_time, sep = ""), replacement = "chunk_\\1")
+    if (nrow(df_ps_child_processes) > 0) {
+      df_ps_child_processes$chunkname <- gsub(x = df_ps_child_processes$cmd, pattern = paste(".*_nci_multinode_cmdfile_L3.R --args ([^ ]+) ", .epoch_time, sep = ""), replacement = "chunk_\\1")
+      
+      for (temp_chunkname in df_master_process_status$chunkname[df_master_process_status$chunkname %in% df_ps_child_processes$chunkname]) {
+        df_master_process_status[df_master_process_status$chunkname == temp_chunkname, "pid"] <- df_ps_child_processes[df_ps_child_processes$chunkname == temp_chunkname, ]$pid
+        df_master_process_status[df_master_process_status$chunkname == temp_chunkname, "hostname"] <- df_ps_child_processes[df_ps_child_processes$chunkname == temp_chunkname, ]$hostname
+        df_master_process_status[df_master_process_status$chunkname == temp_chunkname, "current_process_status_code"] <- df_ps_child_processes[df_ps_child_processes$chunkname == temp_chunkname, ]$s
+        df_master_process_status[df_master_process_status$chunkname == temp_chunkname, "spawned"] <- TRUE
+      }
+      
+    }
+    
+    # make df_process_status chunknames consistent with names(list_workers)
+    # df_process_status <- merge(x = data.frame("chunkname" = names(list_workers)), y = df_ps_child_processes, by = "chunkname", all.x = TRUE, sort = FALSE)
+    # df_process_status <- df_process_status[match(intersect(names(list_workers), df_process_status$chunkname), df_process_status$chunkname), ]
+    # df_process_status[is.na(df_process_status$s), "s"] <- "missing"
+    # df_process_status$isalive <- !grepl(x = df_process_status$s, pattern = "Z|X|T|t|missing", ignore.case = FALSE)
+    
+    # END WRANGLE LIVE PROCESS DATA ###
+    
+    ## add in process information as it becomes available
+    ### current_process_status_code is a dynamic column
+    
+    # update exit codes
+    # patience deals with hangs before the rscript call
+    list_updated_exit_codes_and_patience <- mapply(
+      "L1_chunkname" = df_master_process_status$chunkname,
+      "L1_pid" = df_master_process_status$pid,
+      "L1_hostname" = df_master_process_status$hostname,
+      "L1_verify_invocation" = df_master_process_status$verify_invocation,
+      "L1_verify_rscript" = df_master_process_status$verify_rscript,
+      "L1_exitmsg" = df_master_process_status$exitmsg,
+      "L1_spawned" = df_master_process_status$spawned,
+      "L1_current_process_status_code" = df_master_process_status$current_process_status_code,
+      "L1_patience" = df_master_process_status$patience,
+      SIMPLIFY = FALSE,
+      FUN = function(L1_chunkname, L1_pid, L1_hostname, L1_verify_invocation, L1_verify_rscript, L1_exitmsg, L1_spawned, L1_current_process_status_code, L1_patience) {
+        
+        if (L1_exitmsg == "missing" & L1_spawned == FALSE) {
+          return(
+            list(
+              "L1_exit_code" = -2,
+              "patience" = 0
+            )
+          )
+        } else if (L1_exitmsg == "" & L1_spawned == TRUE & !grepl(x = L1_current_process_status_code, pattern = "Z|X|T|t", ignore.case = FALSE)) {
+          return(
+            list(
+              "L1_exit_code" = -1,
+              "patience" = 0
+            )
+          )
+        } else if (L1_exitmsg == "GRACEFUL_EXIT") {
+          return(
+            list(
+              "L1_exit_code" = 0,
+              "patience" = 0
+            )
+          )
+        } else if (L1_exitmsg == "" & is.na(L1_current_process_status_code) == TRUE) {
+          return(
+            list(
+              "L1_exit_code" = 1,
+              "patience" = 0
+            )
+          )
+        } else {
+          # the remaining cases are vast majority due to L1_exitmsg == "missing" & L1_spawned == TRUE. that is a patience issue
+          return(
+            list(
+              "L1_exit_code" = -2,
+              "patience" = L1_patience + 1
+            )
+          )
+        }
+        
+      } )
+    
+    global_list_updated_exit_codes_and_patience <<- list_updated_exit_codes_and_patience
+    
+    vector_updated_exit_codes <- unlist(lapply(X = list_updated_exit_codes_and_patience, FUN = function(a1) {return(a1$L1_exit_code)}))
+    vector_updated_patience <- unlist(lapply(X = list_updated_exit_codes_and_patience, FUN = function(a1) {return(a1$patience)}))
+    
+    # write new params
+    global_df_master_process_status <<- df_master_process_status
+    
+    df_master_process_status$exit_code <- vector_updated_exit_codes
+    df_master_process_status$patience <- vector_updated_patience
     
     ## deal with the chunks we expect to be still running or not
     if (length(vector_current_chunks_spliced) > 0) {
@@ -508,56 +694,9 @@ nciparallel_pmap <- function(
       vector_names_of_current_chunks_spliced <- character()
     }
     
-    # make df_process_status chunknames consistent with names(list_workers)
-    df_process_status <- merge(x = data.frame("chunkname" = names(list_workers)), y = df_ps_child_processes, by = "chunkname", all.x = TRUE)
+    vector_names_of_chunks_alive <- df_master_process_status[df_master_process_status$exit_code == -1,]$chunkname
     
-    df_process_status[is.na(df_process_status$s), "s"] <- "missing"
-    df_process_status$isalive <- !grepl(x = df_process_status$s, pattern = "Z|X|T|t|missing", ignore.case = FALSE)
-    
-    vector_names_of_chunks_alive <- df_process_status[df_process_status$isalive == TRUE, ]$chunkname
-    
-    vector_exit_codes <- mapply(
-      "a1" = list_workers,
-      "a2" = names(list_workers),
-      "a3" = df_process_status$isalive,
-      FUN = function(a1, a2, a3) {
-        
-        # logical_process_is_alive <- type.convert(system(command = paste("ps -r ", a1$pid, " | wc -l", sep = ""), intern = TRUE), as.is = TRUE) > 1
-        
-        logical_process_is_alive <- a3
-        
-        exitmsg_path <- paste(.intermediate_files_dir, "/", .job_name, "_", a2, "_exitmsg.txt", sep = "")
-        
-        if (file.exists(exitmsg_path)) {
-          exitmsg <- readLines(con = exitmsg_path)
-          
-          if (.debug == TRUE) {
-            print("exitmsg")
-            print(exitmsg)
-            print("a2 %in% vector_names_of_current_chunks_spliced")
-            print(a2 %in% vector_names_of_current_chunks_spliced)
-          }
-          
-          if (c(exitmsg, "PLACEHOLDER")[1] == "GRACEFUL EXIT" | a2 %in% vector_names_of_current_chunks_spliced) {
-            return(0)
-          } else if (logical_process_is_alive == TRUE) {
-            return(-1)
-          } else if (logical_process_is_alive == FALSE) {
-            
-            if (file.exists(paste(.intermediate_files_dir, "/", .job_name, "_", a2, ".qs", sep = ""))) {
-              Sys.sleep(1)
-              exitmsg <- readLines(con = exitmsg_path)
-            }
-            
-            return(1)
-          }
-          
-        } else {
-          return("2")
-        }
-        
-      } )
-    
+    vector_exit_codes <- df_master_process_status$exit_code
     names(vector_exit_codes) <- names(list_workers)
     
     if (.debug == TRUE) {
@@ -573,18 +712,17 @@ nciparallel_pmap <- function(
     
     # detect error
     ## if any error, stop all
-    if (any(vector_exit_codes > 0)) {
+    if (any(vector_exit_codes > 0) | any(df_master_process_status$patience == .patience)) {
       print("Process status per chunk")
       print(vector_exit_codes)
-      # for mpirun, killing the mother pid will kill all the spawns. this saves us having to ssh into each node and kill
-      suppressWarnings(suppressMessages(lapply(X = list_workers, FUN = function(a1) {system(paste("kill -9 ", mpirun_mother_pid, sep = ""), ignore.stdout = TRUE, ignore.stderr = TRUE)} )))
-      # spew out the last 20 status lines for easy debugging
-      # lapply(X = names(vector_exit_codes)[vector_exit_codes > 0], FUN = function(a1) {warning(paste(a1, " stdout (last 20 lines)", sep = "")); warning(system(command = paste("tail -n 20 ", paste(.status_messages_dir, "/", a1, "_stdout.txt", sep = ""), sep = ""))); warning(paste(a1, " stderr (last 20 lines)", sep = "")); warning(system(command = paste("tail -n 20 ", paste(.status_messages_dir, "/", a1, "_stderr.txt", sep = ""), sep = "")))} )
+      # for mpirun, killing the mother pid will kill all the spawns in OTHER nodes. this saves us having to ssh into each node and kill.
+      system(command = paste("kill -9 ", paste(df_ps[(df_ps$hostname == origin_hostname_short) & grepl(x = df_ps$cmd, pattern = paste("mpirun.+nci_multinode_cmdfile_L1.txt ", .epoch_time, sep = "")),]$pid, collapse = " "), "; kill -9 ", paste(df_ps[(df_ps$hostname == origin_hostname_short) & grepl(x = df_ps$cmd, pattern = paste(".*_nci_multinode_cmdfile_L3.R --args ([^ ]+) ", .epoch_time, sep = "")),]$pid, collapse = " "), sep = ""), ignore.stdout = TRUE, ignore.stderr = TRUE)
       options(warning.length = 8170)
-      stop(paste("Exit status failure received on chunks: ", paste(gsub(x = names(vector_exit_codes[vector_exit_codes > 0]), pattern = "chunk_", replacement = ""), collapse = ","), ". \n\nPlease run the following command in order to view the outputs of each worker: \n", "for i in ", paste(names(vector_exit_codes[vector_exit_codes > 0]), collapse = " "), " ; do tail -n 20 ", "\"", .status_messages_dir, "\"", "/$i\"_stdout.txt\" ", "\"", .status_messages_dir, "\"", "/$i\"_stderr.txt\"; done", sep = ""))
-      # } else {
-      # gotta leave the process hanging for a bit so we can verify it finished correctly. THEN we manually kill the child.
-      # lapply(X = list_workers[names(vector_exit_codes)[vector_exit_codes == 0]], FUN = function(a1) {system(paste("kill -9 ", a1$pid, sep = ""))} )
+      if (any(vector_exit_codes > 0)) {
+        stop(paste("Exit status failure received on chunks: ", paste(gsub(x = names(vector_exit_codes[vector_exit_codes > 0]), pattern = "chunk_", replacement = ""), collapse = ","), ". \n\nPlease run the following command in order to view the outputs of each worker: \n", "for i in ", paste(names(vector_exit_codes[vector_exit_codes > 0]), collapse = " "), "; do tail -n 20 ", "\"", .status_messages_dir, "\"", "$i\"_stdout.txt\" ", "\"", .status_messages_dir, "\"", "$i\"_stderr.txt\"; done", sep = ""))
+      } else if (any(df_master_process_status$patience == .patience)) {
+        stop(paste("Patience exhausted on chunks: ", paste(gsub(x = df_master_process_status[df_master_process_status$patience == .patience, ]$chunkname, pattern = "chunk_", replacement = ""), collapse = ","), ". \n\nPlease run the following command in order to view the outputs of each worker: \n", "for i in ", paste(df_master_process_status[df_master_process_status$patience == .patience, ]$chunkname, collapse = " "), "; do tail -n 20 ", "\"", .status_messages_dir, "\"", "$i\"_stdout.txt\" ", "\"", .status_messages_dir, "\"", "$i\"_stderr.txt\"; done", sep = ""))
+      }
     }
     
     vector_logical_indices_workers_completed_reported <- vector_exit_codes == 0
@@ -671,14 +809,14 @@ nciparallel_pmap <- function(
   if (any(vector_exit_codes > 0)) {
     print("Process status per chunk")
     print(vector_exit_codes)
-    suppressWarnings(suppressMessages(lapply(X = list_workers, FUN = function(a1) {system(paste("kill -9 ", mpirun_mother_pid, sep = ""), ignore.stdout = TRUE, ignore.stderr = TRUE)} )))
+    system(command = paste("kill -9 ", paste(df_ps[(df_ps$hostname == origin_hostname_short) & grepl(x = df_ps$cmd, pattern = paste("mpirun.+nci_multinode_cmdfile_L1.txt ", .epoch_time, sep = "")),]$pid, collapse = " "), "; kill -9 ", paste(df_ps[(df_ps$hostname == origin_hostname_short) & grepl(x = df_ps$cmd, pattern = paste(".*_nci_multinode_cmdfile_L3.R --args ([^ ]+) ", .epoch_time, sep = "")),]$pid, collapse = " "), sep = ""), ignore.stdout = TRUE, ignore.stderr = TRUE)
     # spew out the last 20 status lines for easy debugging
     # lapply(X = names(vector_exit_codes)[vector_exit_codes > 0], FUN = function(a1) {warning(paste(a1, " stdout (last 20 lines)", sep = "")); warning(system(command = paste("tail -n 20 ", paste(.status_messages_dir, "/", a1, "_stdout.txt", sep = ""), sep = ""))); warning(paste(a1, " stderr (last 20 lines)", sep = "")); warning(system(command = paste("tail -n 20 ", paste(.status_messages_dir, "/", a1, "_stderr.txt", sep = ""), sep = "")))} )
     options(warning.length = 8170)
-    stop(paste("Exit status failure received on chunks: ", paste(gsub(x = names(vector_exit_codes[vector_exit_codes > 0]), pattern = "chunk_", replacement = ""), collapse = ","), ". \n\nPlease run the following command in order to view the outputs of each worker: \n", "for i in ", paste(names(vector_exit_codes[vector_exit_codes > 0]), collapse = " "), " ; do tail -n 20 ", "\"", .status_messages_dir, "\"", "/$i\"_stdout.txt\" ", "\"", .status_messages_dir, "\"", "/$i\"_stderr.txt\"; done", sep = ""))
+    stop(paste("Exit status failure received on chunks: ", paste(gsub(x = names(vector_exit_codes[vector_exit_codes > 0]), pattern = "chunk_", replacement = ""), collapse = ","), ". \n\nPlease run the following command in order to view the outputs of each worker: \n", "for i in ", paste(names(vector_exit_codes[vector_exit_codes > 0]), collapse = " "), "; do tail -n 20 ", "\"", .status_messages_dir, "\"", "$i\"_stdout.txt\" ", "\"", .status_messages_dir, "\"", "$i\"_stderr.txt\"; done", sep = ""))
     # } else {
     # gotta leave the process hanging for a bit so we can verify it finished correctly. THEN we manually kill the child.
-    # lapply(X = list_workers[names(vector_exit_codes)[vector_exit_codes == 0]], FUN = function(a1) {system(paste("kill -9 ", mpirun_mother_pid, sep = ""))} )
+    # lapply(X = list_workers[names(vector_exit_codes)[vector_exit_codes == 0]], FUN = function(a1) {system(command = paste("kill -9 ", mpirun_mother_pid, sep = ""))} )
   }
   
   if (.keep_intermediate_files == FALSE) {
@@ -687,7 +825,7 @@ nciparallel_pmap <- function(
     unlink(list.files(path = .intermediate_files_dir, pattern = ".*", full.names = TRUE ), recursive = TRUE)
   }
   
-  suppressWarnings(suppressMessages(lapply(X = list_workers, FUN = function(a1) {system(paste("kill -9 ", mpirun_mother_pid, sep = ""), ignore.stdout = TRUE, ignore.stderr = TRUE)} )))
+  system(command = paste("kill -9 ", paste(df_ps[(df_ps$hostname == origin_hostname_short) & grepl(x = df_ps$cmd, pattern = paste("mpirun.+nci_multinode_cmdfile_L1.txt ", .epoch_time, sep = "")),]$pid, collapse = " "), "; kill -9 ", paste(df_ps[(df_ps$hostname == origin_hostname_short) & grepl(x = df_ps$cmd, pattern = paste(".*_nci_multinode_cmdfile_L3.R --args ([^ ]+) ", .epoch_time, sep = "")),]$pid, collapse = " "), sep = ""), ignore.stdout = TRUE, ignore.stderr = TRUE)
   
   cat("\n")
   
