@@ -1935,6 +1935,10 @@ callr_insulator <- function(
     # if any error, stop all
     insulator_exit_status <- callr_insulator$get_exit_status()
     
+    if (.debug == TRUE) {
+      print(insulator_exit_status)
+    }
+    
     if (!is.null(insulator_exit_status)) {
       if (insulator_exit_status != 0) {
         callr_insulator$signal(9)
@@ -1973,8 +1977,6 @@ callr_insulator <- function(
     unlink(list.files(path = .temp_dir, pattern = ".*.qs", full.names = TRUE ), recursive = TRUE)
     unlink(list.files(path = .intermediate_files_dir, pattern = ".*.qs", full.names = TRUE ), recursive = TRUE)
   }
-  
-  rm(callr_insulator)
   
   cat("\n")
   
