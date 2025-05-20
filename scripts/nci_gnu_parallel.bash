@@ -1,6 +1,6 @@
 # ~/nci_gnu_parallel 'Rscript -e "print(\"hi\")"'
 
-if [ "$1" = "" ]; then echo -e "USAGE:\nRun this command first: for i in \$(compgen -v); do export \$i; done\nARGUMENTS:\n. Wildcards must always have a quote around them: e.g. \"xxx\"\*\".txt\". Escapes required for: \$, \", \\, \*.\n\$1: total no. processes running at once\n\$2: no. processes per node\n\$3: no. cores exclusively assigned to each job\n\$4: no. chunks\n"; exit 2; fi
+if [ "$1" = "" ]; then echo -e "USAGE:\nRun this command first: for i in \$(compgen -v); do export \$i; done\nARGUMENTS:\n. Wildcards must always have a quote around them: e.g. \"xxx\"\*\".txt\". Escapes required for: \$, \", \\, *.\n\$1: total no. processes running at once\n\$2: no. processes per node\n\$3: no. cores exclusively assigned to each job\n\$4: no. chunks\n"; exit 2; fi
 
 echo \#\!/bin/bash > $TMPDIR"/nci_multinode_envfile.txt"
 

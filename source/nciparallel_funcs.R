@@ -37,7 +37,7 @@
 ## .run_in_background: frees up the R process to do other things. but by definition, it will NEVER return a result directly to R and chunks are always saved to disk.
 nciparallel_pmap <- function(
     .l, .f, 
-    .no_workers = 1, .no_chunks = 1, .no_workers_per_node = 1, .no_cores_per_worker = 1, .r_process_spawn_wait_time = 120, .commission_mode = c("nci_parallel_managed_round_robin", "r_managed_round_robin"), .dedicated_mgmt_rank = FALSE, .use_parallel_for_mgmt = FALSE, .run_in_background = FALSE,
+    .no_workers = 1, .no_chunks = 1, .no_workers_per_node = 1, .no_cores_per_worker = 1, .r_process_spawn_wait_time = 120, .commission_mode_ = "nci_parallel_managed_round_robin", .dedicated_mgmt_rank = TRUE, .use_parallel_for_mgmt = FALSE, .run_in_background_ = FALSE,
     .job_name = NULL, .patience = 5,
     .globals_save_compress = TRUE, .re_export = TRUE, .globals_mode = "auto", .user_global_objects = NULL, 
     .intermediate_files_dir = NULL, .keep_intermediate_files = FALSE, 
@@ -343,23 +343,46 @@ nciparallel_pmap <- function(
   list_splitting_schema <- al_splitindices(index_length = .list_length, number_of_chunks = .no_chunks)
   
   # write .l
-  lapply(
-    X = 1:.no_chunks, 
-    FUN = function(a1) {
-      
-      qs::qsave(
-        x = lapply(
-          X = .l,
-          FUN = function(b1) {
-            return(
-              b1[list_splitting_schema[[a1]]$start:list_splitting_schema[[a1]]$end]
-            )
-          } )
-        , file = paste(.intermediate_files_dir, "/", .job_name, "_.l_chunk_", a1, ".qs", sep = "")
-      )
-      
-    }
-  )
+  if (.use_parallel_for_mgmt == FALSE) {
+    lapply(
+      X = 1:.no_chunks, 
+      FUN = function(a1) {
+        
+        qs::qsave(
+          x = lapply(
+            X = .l,
+            FUN = function(b1) {
+              return(
+                b1[list_splitting_schema[[a1]]$start:list_splitting_schema[[a1]]$end]
+              )
+            } )
+          , file = paste(.intermediate_files_dir, "/", .job_name, "_.l_chunk_", a1, ".qs", sep = "")
+        )
+        
+      }
+    )
+  } else {
+    callr_insulator(.f = quote(mc_map(
+      .x = 1:.no_chunks, 
+      .no_workers = .no_workers_per_node, .no_chunks = .no_workers_per_node,
+      .f = function(a1) {
+        
+        qs::qsave(
+          x = lapply(
+            X = .l,
+            FUN = function(b1) {
+              return(
+                b1[list_splitting_schema[[a1]]$start:list_splitting_schema[[a1]]$end]
+              )
+            } )
+          , file = paste(.intermediate_files_dir, "/", .job_name, "_.l_chunk_", a1, ".qs", sep = "")
+        )
+        
+      }
+    )
+    ) )
+  }
+  
   
   # write .f
   qs::qsave(x = .f, file = paste(.intermediate_files_dir, "/", .job_name, "_.f.qs", sep = ""))
@@ -462,7 +485,7 @@ nciparallel_pmap <- function(
   
   # END INITIALISATION ###
   
-  system(command = paste("echo $$ > ", .intermediate_files_dir, "/", .job_name, "_nci_multinode_mother_pid.txt; module load nci-parallel; mpirun --np ", .no_workers, " --map-by ppr:", .no_workers_per_node, ":node:PE=", .no_cores_per_worker, " --oversubscribe --bind-to none nci-parallel --dedicated --input-file ", .intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L1.txt ", .epoch_time, " &", sep = ""), intern = FALSE)
+  system(command = paste("echo $$ > ", .intermediate_files_dir, "/", .job_name, "_nci_multinode_mother_pid.txt; module load nci-parallel; mpirun --np ", .no_workers, " --map-by ppr:", .no_workers_per_node, ":node:PE=", .no_cores_per_worker, " --oversubscribe --bind-to none nci-parallel ", if (.dedicated_mgmt_rank == TRUE) {"--dedicated "} else {""}, "--input-file ", .intermediate_files_dir, "/", .job_name, "_nci_multinode_cmdfile_L1.txt ", .epoch_time, " &", sep = ""), intern = FALSE)
   
   mpirun_mother_pid <- readLines(con = paste(.intermediate_files_dir, "/", .job_name, "_nci_multinode_mother_pid.txt", sep = ""))
   
@@ -553,34 +576,67 @@ nciparallel_pmap <- function(
     
     # WRANGLE LIVE PROCESS DATA
     ## this a snapshot of all processes running on the nodes
-    list_df_ps <- lapply(
-      X = vector_node_hostnames, 
-      FUN = function(a1) {
-        
-        # DEBUG ###
-        # a1 <- vector_node_hostnames[1]
-        ###########
-        
-        # we cannot use ssh when checking on the same node
-        if (a1 == origin_hostname_short) {
-          vector_ps_status <- trimws(system(command = "ps -eo pid,ppid,pgid,s,cmd", intern = TRUE))[-1]
-        } else {
-          vector_ps_status <- trimws(system(command = paste("ssh -o StrictHostKeyChecking=no ", a1, " 'ps -eo pid,ppid,pgid,s,cmd'", sep = ""), intern = TRUE))[-1]
-        }
-        
-        # we are doing this because there's no way to split by spaces without also separating the CMD column. no, tab separation attempts don't work.
-        L1_df_ps <- data.frame(
-          "pid" = gsub(x = vector_ps_status, pattern = "^([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+(.+)$", replacement = "\\1"),
-          "ppid" = gsub(x = vector_ps_status, pattern = "^([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+(.+)$", replacement = "\\2"),
-          "pgid" = gsub(x = vector_ps_status, pattern = "^([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+(.+)$", replacement = "\\3"),
-          "s" = gsub(x = vector_ps_status, pattern = "^([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+(.+)$", replacement = "\\4"),
-          "cmd" = gsub(x = vector_ps_status, pattern = "^([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+(.+)$", replacement = "\\5"),
-          "hostname" = a1
-        )
-        
-        return(L1_df_ps)
-        
-      } )
+    if (.use_parallel_for_mgmt == FALSE) {
+      list_df_ps <- lapply(
+        X = vector_node_hostnames, 
+        FUN = function(a1) {
+          
+          # DEBUG ###
+          # a1 <- vector_node_hostnames[1]
+          ###########
+          
+          # we cannot use ssh when checking on the same node
+          if (a1 == origin_hostname_short) {
+            vector_ps_status <- trimws(system(command = "ps -eo pid,ppid,pgid,s,cmd", intern = TRUE))[-1]
+          } else {
+            vector_ps_status <- trimws(system(command = paste("ssh -o StrictHostKeyChecking=no ", a1, " 'ps -eo pid,ppid,pgid,s,cmd'", sep = ""), intern = TRUE))[-1]
+          }
+          
+          # we are doing this because there's no way to split by spaces without also separating the CMD column. no, tab separation attempts don't work.
+          L1_df_ps <- data.frame(
+            "pid" = gsub(x = vector_ps_status, pattern = "^([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+(.+)$", replacement = "\\1"),
+            "ppid" = gsub(x = vector_ps_status, pattern = "^([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+(.+)$", replacement = "\\2"),
+            "pgid" = gsub(x = vector_ps_status, pattern = "^([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+(.+)$", replacement = "\\3"),
+            "s" = gsub(x = vector_ps_status, pattern = "^([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+(.+)$", replacement = "\\4"),
+            "cmd" = gsub(x = vector_ps_status, pattern = "^([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+(.+)$", replacement = "\\5"),
+            "hostname" = a1
+          )
+          
+          return(L1_df_ps)
+          
+        } )
+    } else {
+      list_df_ps <- callr_insulator(.f = quote(mc_map(
+        .x = vector_node_hostnames, 
+        .no_workers = .no_workers_per_node, .no_chunks = .no_workers_per_node,
+        .f = function(a1) {
+          
+          # DEBUG ###
+          # a1 <- vector_node_hostnames[1]
+          ###########
+          
+          # we cannot use ssh when checking on the same node
+          if (a1 == origin_hostname_short) {
+            vector_ps_status <- trimws(system(command = "ps -eo pid,ppid,pgid,s,cmd", intern = TRUE))[-1]
+          } else {
+            vector_ps_status <- trimws(system(command = paste("ssh -o StrictHostKeyChecking=no ", a1, " 'ps -eo pid,ppid,pgid,s,cmd'", sep = ""), intern = TRUE))[-1]
+          }
+          
+          # we are doing this because there's no way to split by spaces without also separating the CMD column. no, tab separation attempts don't work.
+          L1_df_ps <- data.frame(
+            "pid" = gsub(x = vector_ps_status, pattern = "^([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+(.+)$", replacement = "\\1"),
+            "ppid" = gsub(x = vector_ps_status, pattern = "^([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+(.+)$", replacement = "\\2"),
+            "pgid" = gsub(x = vector_ps_status, pattern = "^([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+(.+)$", replacement = "\\3"),
+            "s" = gsub(x = vector_ps_status, pattern = "^([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+(.+)$", replacement = "\\4"),
+            "cmd" = gsub(x = vector_ps_status, pattern = "^([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+([^ ]+)\\s+(.+)$", replacement = "\\5"),
+            "hostname" = a1
+          )
+          
+          return(L1_df_ps)
+          
+        } )
+      ) )
+    }
     
     # now, our pidtable has an additional hostname column
     # df_ps_child_processes is a table of all child R/rsession processes with pid, status and hostname
