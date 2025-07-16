@@ -58,5 +58,11 @@ for i in $(ls $TMPDIR"/"$tempfileprefix*); do cat $TMPDIR"/nci_multinode_envfile
 
 ls $TMPDIR"/"$tempfileprefix*_withenv | awk '{print "bash " $0}' > $TMPDIR"nci_multinode_cmdfile_L1.txt"
 
+temp_list=$(qstat -an1 $(echo $PBS_JOBID) | awk 'NR == 6{print $12}'  | awk '{gsub(/\/.\*[0-9]+\+{0,1}/, " "); print $0}')
+
+echo "Now running on hosts: " $temp_list
+
+# for i in $temp_list; do ssh -o StrictHostKeyChecking=no $i 'top -b -n 1' | awk 'NR >= 5 && NR <= 11 {print $0}' & done
+
 mpirun --np $1 --map-by ppr:$2:node:PE=$3 --oversubscribe --bind-to none nci-parallel --input-file $TMPDIR"nci_multinode_cmdfile_L1.txt"
 

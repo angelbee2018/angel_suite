@@ -2002,3 +2002,20 @@ sum_multiple_curves_from_datapoints <- function(input_tibble = NULL, number_of_o
   )
   
 }
+
+# transpose a tibble where the first column becomes header
+## colnames become rownames, so get rid of them.
+## turn first column values into colnames
+transpose_tibble_to_wide <- function(tibble_input) {
+   
+  df_input_transposed <- as.data.frame(t(tibble_input))
+  
+  colnames(df_input_transposed) <- df_input_transposed[1, ]
+  
+  df_input_transposed <- df_input_transposed[-1, ]
+  
+  return(
+    tibble::as_tibble(readr::type_convert(df_input_transposed))
+  )
+  
+}
