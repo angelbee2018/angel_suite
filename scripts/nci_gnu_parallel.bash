@@ -1,6 +1,6 @@
 # ~/nci_gnu_parallel 'Rscript -e "print(\"hi\")"'
 
-if [ "$1" = "" ]; then echo -e "USAGE:\nRun this command first: for i in \$(compgen -v); do export \$i; done\nARGUMENTS:\n. Wildcards must always have a quote around them: e.g. \"xxx\"\*\".txt\". Escapes required for: \$, \", \\, *.\n\$1: total no. processes running at once\n\$2: no. processes per node\n\$3: no. cores exclusively assigned to each job\n\$4: no. chunks\n"; exit 2; fi
+if [ "$1" = "" ]; then echo -e 'USAGE:\nRun this command first: for i in $(compgen -v); do export $i; done\nARGUMENTS:\nDOUBLE QUOTE GNU PARALLEL MODE: escapes required for: $, ", \\, *. Wildcards must always have a quote around them: e.g. "xxx"*".txt".\nSINGLE QUOTE GNU PARALLEL MODE: To escape a single quote ('\''), replace with '\''\\'\'''\''. For some reason though, `echo` inside `parallel` requires \\'\''\\'\'''\'' escape. Otherwise, backslash escapes needed for \\.\n$1: total no. processes running at once\n$2: no. processes per node\n$3: no. cores exclusively assigned to each job\n$4: no. chunks\n'; exit 2; fi
 
 echo \#\!/bin/bash > $TMPDIR"/nci_multinode_envfile.txt"
 
@@ -51,6 +51,12 @@ bash $TMPDIR"tmp_command.txt" > $TMPDIR"nci_multinode_cmdfile_L2.txt"
 
 tempfileprefix=$(date '+%s%N')
 # $(shuf -i 1-100000 -n 1)
+
+map_length=$4
+
+if [[ $map_length -gt $(wc -l $TMPDIR"nci_multinode_cmdfile_L2.txt" | awk '{print $1}') ]]; then map_length=$(wc -l $TMPDIR"nci_multinode_cmdfile_L2.txt" | awk '{print $1}'); fi
+
+if [[ $map_length -eq 0 ]]; then echo "ERROR: map length is 0"; exit 1; fi
 
 split -a 4 -n l/$4 $TMPDIR"nci_multinode_cmdfile_L2.txt" $TMPDIR"/"$tempfileprefix
 

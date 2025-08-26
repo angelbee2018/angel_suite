@@ -2019,3 +2019,154 @@ transpose_tibble_to_wide <- function(tibble_input) {
   )
   
 }
+
+# any kind of table, as long as it has columns called "a" and "b"
+detect_simple_contiguous_clusters_from_edge_table <- function(table_input) {
+  
+  # DEBUG ###
+  # table_input <- test4[1:1000, ] %>% dplyr::group_split(gene_name) %>% .[[2]] %>% .[, c("transcript_id", "peptide")] %>% setNames(nm = c("a", "b"))
+  ###########
+  
+  # iterative grow from each node 
+  vector_all_available_nodes <- unique(unlist(table_input[, c("a", "b")]))
+  
+  # create logical signifying whether all nodes have been considered
+  logical_all_nodes_considered <- FALSE
+  
+  # work through the list of all availbble nodes
+  vector_nodes_remaining <- vector_all_available_nodes
+  
+  # pre-allocate a tibble with seed value and members of association
+  df_association_table <- data.frame()
+  
+  while (logical_all_nodes_considered == FALSE) {
+    
+    current_node <- vector_nodes_remaining[1]
+    
+    cat("current_node: ", current_node, "\n")
+    
+    # iteratively grow an association out from the current node until it can't get any bigger
+    iteration_difference <- 1
+    # the list of association members grows as the tree moves outwards
+    vector_current_association_members <- current_node
+    while (iteration_difference > 0) {
+      
+      previous_number_of_members_in_association <- length(vector_current_association_members)
+      
+      # find all interactors of current association members
+      vector_all_interactors_of_current_association_members <- unique(
+        c(
+          unique(unlist(table_input[table_input$a %in% vector_current_association_members, "b"])),
+          unique(unlist(table_input[table_input$b %in% vector_current_association_members, "a"]))
+        )
+      )
+      
+      vector_current_association_members <- unique(c(vector_current_association_members, vector_all_interactors_of_current_association_members))
+      
+      current_number_of_members_in_association <- length(vector_current_association_members)
+      
+      iteration_difference <- current_number_of_members_in_association - previous_number_of_members_in_association
+      
+      cat("iteration_difference: ", iteration_difference, "\n")
+      
+    }
+    
+    
+    df_association_table <- rbind(
+      df_association_table,
+      data.frame("seed" = as.character(current_node), 
+                 "cluster_members" = as.character(paste(vector_current_association_members, collapse = ",")), 
+                 "cluster_size" = current_number_of_members_in_association)
+      )
+    
+    vector_nodes_remaining <- vector_nodes_remaining[!vector_nodes_remaining %in% vector_current_association_members]
+    
+    logical_all_nodes_considered <- length(vector_nodes_remaining) == 0
+    
+  }
+  
+  return(df_association_table)
+  
+}
+
+# EXPERIMENTAL
+# any kind of table, as long as it has columns called "a", "b" and "weight"
+# traversal across an edge is a binary event
+# whether or not traversal occurs is determined by the weight (normalised across the whole column provided if max. weight > 1)
+# we roll a dice to determine this.
+# run this function multiple times to get a consensus.
+detect_clusters_from_edge_table_stochastically_using_weights <- function(table_input) {
+  
+  # DEBUG ###
+  # table_input <- tibble_comb_result
+  ###########
+  
+  # normalise weights if applicable
+  if (max(table_input$weight) > 1) {
+    vec_weight <- (table_input$weight)/max(table_input$weight)
+  } else {
+    vec_weight <- table_input$weight
+  }
+  
+  table_input$roll <- unlist(lapply(X = vec_weight, FUN = function(a1) {return(sample(x = c(0, 1), size = 1, prob = c(1 - a1, a1)))}))
+  
+  # iterative grow from each node 
+  vector_all_available_nodes <- unique(unlist(table_input[, c("a", "b")]))
+  
+  # create logical signifying whether all nodes have been considered
+  logical_all_nodes_considered <- FALSE
+  
+  # work through the list of all availbble nodes
+  vector_nodes_remaining <- vector_all_available_nodes
+  
+  # pre-allocate a tibble with seed value and members of association
+  df_association_table <- data.frame()
+  
+  while (logical_all_nodes_considered == FALSE) {
+    
+    current_node <- vector_nodes_remaining[1]
+    
+    cat("current_node: ", current_node, "\n")
+    
+    # iteratively grow an association out from the current node until it can't get any bigger
+    iteration_difference <- 1
+    # the list of association members grows as the tree moves outwards
+    vector_current_association_members <- current_node
+    while (iteration_difference > 0) {
+      
+      previous_number_of_members_in_association <- length(vector_current_association_members)
+      
+      # find all interactors of current association members
+      vector_all_interactors_of_current_association_members <- unique(
+        c(
+          unique(unlist(table_input[(table_input$a %in% vector_current_association_members) & (table_input$roll == 1), "b"])),
+          unique(unlist(table_input[(table_input$b %in% vector_current_association_members) & (table_input$roll == 1), "a"]))
+        )
+      )
+      
+      vector_current_association_members <- unique(c(vector_current_association_members, vector_all_interactors_of_current_association_members))
+      
+      current_number_of_members_in_association <- length(vector_current_association_members)
+      
+      iteration_difference <- current_number_of_members_in_association - previous_number_of_members_in_association
+      
+      cat("iteration_difference: ", iteration_difference, "\n")
+      
+    }
+    
+    df_association_table <- rbind(
+      df_association_table,
+      data.frame("seed" = as.character(current_node), 
+                 "cluster_members" = as.character(paste(vector_current_association_members, collapse = ",")), 
+                 "cluster_size" = current_number_of_members_in_association)
+    )
+    
+    vector_nodes_remaining <- vector_nodes_remaining[!vector_nodes_remaining %in% vector_current_association_members]
+    
+    logical_all_nodes_considered <- length(vector_nodes_remaining) == 0
+    
+  }
+  
+  return(df_association_table)
+  
+}
